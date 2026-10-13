@@ -1,0 +1,7 @@
+﻿venv/
+__pycache__/
+*.pyc
+.env
+qdrant_storage/
+.vscode/
+data/*.pdf
