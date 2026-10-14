@@ -6,7 +6,11 @@ from src.config import settings
 
 class VectorDBService:
     def __init__(self):
-        self.client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        self.client = QdrantClient(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            check_compatibility=False
+        )
         self.collection_name = settings.COLLECTION_NAME
         self.embed_model = SentenceTransformer(settings.EMBEDDING_MODEL)
         self._ensure_collection_exists()
@@ -20,10 +24,13 @@ class VectorDBService:
                     vectors_config=VectorParams(size=768, distance=Distance.COSINE),
                 )
         except Exception as e:
-            print(f"Warning checking collections: {e}")
+            print(f"Error ensuring collection: {e}")
 
     def insert_chunks(self, chunks: list[dict]):
         self._ensure_collection_exists()
+        if not chunks:
+            return
+
         texts_to_embed = [f"passage: {c['content']}" for c in chunks]
         embeddings = self.embed_model.encode(texts_to_embed, show_progress_bar=True).tolist()
 
@@ -44,18 +51,14 @@ class VectorDBService:
 
     def search(self, query: str, limit: int = 10):
         self._ensure_collection_exists()
-        
-        # اگر کالکشن خالی باشد جستجو نکند
-        count_info = self.client.count(collection_name=self.collection_name)
-        if count_info.count == 0:
-            return []
-
         query_vector = self.embed_model.encode(f"query: {query}").tolist()
+
         search_result = self.client.query_points(
             collection_name=self.collection_name,
             query=query_vector,
             limit=limit
         )
+
         return [
             {
                 "text": hit.payload["text"],
