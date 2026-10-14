@@ -10,72 +10,77 @@ from src.generator import generate_answer
 from src.evaluator import RagEvaluator
 
 st.set_page_config(
-    page_title="سامانه سازمانی تحلیل و اعتبارسنجی قراردادها",
+    page_title="Legal RAG Enterprise System",
     page_icon="⚖️",
     layout="wide"
 )
 
-# استایل‌بندی سفارشی با فونت استاندارد Vazirmatn و تم سازمانی تیره
+# اعمال CSS هدفمند بدون خراب کردن آیکون‌های سیستمی
 st.markdown("""
 <style>
     @import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
-    
-    * {
-        font-family: 'Vazirmatn', sans-serif !important;
+
+    /* اعمال فونت فقط به متون، نه آیکون‌ها */
+    html, body, p, span, div, h1, h2, h3, h4, h5, h6, input, button {
+        font-family: 'Vazirmatn', system-ui, -apple-system, sans-serif;
     }
-    
-    .stApp {
-        direction: rtl;
-        text-align: right;
-        background-color: #0d1117;
+
+    /* جلوگیری صریح از تغییر فونت آیکون‌های متریال استریم‌لیت */
+    [data-testid="stIcon"], i, [class*="material-icons"], [class*="styles_icon"] {
+        font-family: 'Material Icons', 'Material Symbols Rounded' !important;
     }
-    
-    /* سربرگ مدرن */
-    .hero-banner {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border: 1px solid #334155;
+
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+        max-width: 1280px;
+    }
+
+    /* هدر */
+    .hero-container {
+        background: #111827;
+        border: 1px solid #1f2937;
         border-radius: 12px;
-        padding: 24px;
+        padding: 20px 24px;
         margin-bottom: 24px;
     }
-    .hero-title {
-        font-size: 24px;
-        font-weight: 800;
-        color: #f1f5f9;
+    .hero-container h2 {
+        color: #f9fafb;
+        font-size: 22px;
         margin-bottom: 6px;
     }
-    .hero-subtitle {
-        font-size: 14px;
-        color: #94a3b8;
+    .hero-container p {
+        color: #9ca3af;
+        font-size: 13px;
+        margin: 0;
     }
 
-    /* کادر پاسخ سیستم */
-    .answer-card {
-        background-color: #161b22;
-        border: 1px solid #30363d;
+    /* کادر پاسخ */
+    .response-card {
+        background: #0f172a;
         border-right: 4px solid #38bdf8;
+        border: 1px solid #1e293b;
         border-radius: 10px;
         padding: 20px;
-        font-size: 15.5px;
-        line-height: 1.9;
-        color: #e6edf3;
-        margin-bottom: 15px;
+        color: #f1f5f9;
+        line-height: 1.8;
+        font-size: 15px;
     }
 
-    /* کارت‌های متریک داشبورد */
-    .metric-box {
-        background-color: #161b22;
-        border: 1px solid #30363d;
+    /* کارت‌های متریک */
+    .metric-card-box {
+        background: #111827;
+        border: 1px solid #1f2937;
         border-radius: 10px;
-        padding: 16px;
+        padding: 14px;
         text-align: center;
     }
-    .metric-label {
-        font-size: 12.5px;
-        color: #8b949e;
-        margin-bottom: 6px;
+    .metric-card-box .title {
+        font-size: 12px;
+        color: #9ca3af;
+        margin-bottom: 4px;
     }
-    .metric-val {
+    .metric-card-box .num {
         font-size: 20px;
         font-weight: 700;
         direction: ltr;
@@ -92,11 +97,11 @@ def get_services():
 
 db_service, retriever = get_services()
 
-# سربرگ صفحه
+# سربرگ اصلی
 st.markdown("""
-<div class="hero-banner">
-    <div class="hero-title">⚖️ سامانه سازمانی تحلیل و اعتبارسنجی قراردادها (Legal RAG)</div>
-    <div class="hero-subtitle">بازیابی دوسطحی برداری و متقاطع • خردایش بندمحور • پایش تاخیر و ارزیابی کیفیت RAG Triad</div>
+<div class="hero-container">
+    <h2>⚖️ سامانه سازمانی تحلیل و اعتبارسنجی قراردادها (Legal RAG)</h2>
+    <p>بازیابی دوسطحی برداری و متقاطع • خردایش بندمحور • پایش تاخیر و ارزیابی کیفیت RAG Triad</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -104,12 +109,12 @@ st.markdown("""
 with st.sidebar:
     st.header("📂 مدیریت مستندات")
     uploaded_files = st.file_uploader(
-        "بارگذاری اسناد قرارداد یا مالی (PDF):",
+        "بارگذاری اسناد حقوقی یا مالی (PDF):",
         type=["pdf"],
         accept_multiple_files=True
     )
     
-    if st.button("🚀 پردازش و ایندکس برداری"):
+    if st.button("🚀 پردازش و ایندکس برداری", use_container_width=True):
         if uploaded_files:
             total_chunks = 0
             start_ingest = time.perf_counter()
@@ -133,103 +138,99 @@ with st.sidebar:
     st.markdown("#### ⚙️ معماری سامانه")
     st.markdown("""
     - **Chunking:** Clause-Aware Regex
-    - **Vector DB:** Qdrant (HNSW / Cosine)
-    - **Reranker:** Cross-Encoder (MS-Marco)
+    - **Vector DB:** Qdrant (Cosine)
+    - **Reranker:** Cross-Encoder
     - **LLM Engine:** Llama 3.2
     """)
 
-# ورودی پرسش
+# ورودی جستجو
 query = st.text_input(
-    "پرسش حقوقی یا مالی خود را مطرح کنید:",
-    placeholder="مثلاً: شرایط جریمه دیرکرد تحویل فازها چیست؟"
+    "پرسش حقوقی یا مالی خود را وارد کنید:",
+    placeholder="مثلاً: شرایط جریمه تاخیر در تحویل چقدر است؟"
 )
 
-if st.button("🔍 جستجو و تحلیل قرارداد") and query:
+if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width=True) and query:
     total_start = time.perf_counter()
     
-    with st.spinner("در حال بازیابی، بازچینی و استنتاج مدل..."):
-        # بازیابی
+    with st.spinner("در حال بازیابی مستندات و استنتاج مدل..."):
         t_ret = time.perf_counter()
         contexts = retriever.retrieve(query, top_k=3)
         ret_ms = round((time.perf_counter() - t_ret) * 1000, 1)
 
-        # استنتاج
         t_gen = time.perf_counter()
         answer = generate_answer(query, contexts)
         gen_ms = round((time.perf_counter() - t_gen) * 1000, 1)
         
-        # ارزیابی خودکار
         evaluation = RagEvaluator.evaluate_rag_triad(query=query, answer=answer, contexts=contexts)
         total_ms = round((time.perf_counter() - total_start) * 1000, 1)
 
-    # دو ستون اصلی نتایج
     col_ans, col_chunks = st.columns([6, 4])
     
     with col_ans:
         st.subheader("💡 پاسخ مستند سیستم:")
         formatted_answer = answer.replace("\n", "<br>")
-        st.markdown(f'<div class="answer-card">{formatted_answer}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="response-card">{formatted_answer}</div>', unsafe_allow_html=True)
 
     with col_chunks:
         st.subheader("📑 شواهد و بندهای مرتبط:")
         if contexts:
             for idx, c in enumerate(contexts):
                 score = c.get("rerank_score", 0.0)
-                # نمایش صرفاً نام تمیز فایل بدون مسیر ویندوز
                 clean_name = Path(c["source"]).name
                 clause_id = c.get("metadata", {}).get("clause_id", "ثبت‌نشده")
+                text_content = c.get("text") or c.get("content") or ""
                 
                 with st.expander(f"مستند {idx+1}: {clean_name} (صفحه {c['page']})"):
-                    st.write(c["text"])
+                    st.write(text_content)
                     st.caption(f"شناسه بند: `{clause_id}` | امتیاز بازچینی: `{score:.4f}`")
         else:
             st.warning("هیچ قطعه مرتبطی یافت نشد.")
 
     st.markdown("---")
 
-    # داشبورد متریک‌ها و مانیتورینگ
+    # داشبورد متریک‌ها
     st.subheader("📊 داشبورد رصدپذیری و سنجش کیفیت (Observability & Evaluation)")
     
     c1, c2, c3, c4, c5 = st.columns(5)
     
     with c1:
         st.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-label">زمان کل پاسخ‌دهی</div>
-            <div class="metric-val" style="color: #60a5fa;">{total_ms} ms</div>
+        <div class="metric-card-box">
+            <div class="title">زمان کل پاسخ‌دهی</div>
+            <div class="num" style="color: #60a5fa;">{total_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c2:
         st.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-label">جستجو و بازچینی</div>
-            <div class="metric-val" style="color: #fbbf24;">{ret_ms} ms</div>
+        <div class="metric-card-box">
+            <div class="title">جستجو و بازچینی</div>
+            <div class="num" style="color: #fbbf24;">{ret_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c3:
         st.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-label">استنتاج مدل (LLM)</div>
-            <div class="metric-val" style="color: #c084fc;">{gen_ms} ms</div>
+        <div class="metric-card-box">
+            <div class="title">استنتاج مدل (LLM)</div>
+            <div class="num" style="color: #c084fc;">{gen_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c4:
         rel_percent = int(evaluation["context_relevance"] * 100)
         st.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-label">ارتباط شواهد</div>
-            <div class="metric-val" style="color: #34d399;">{rel_percent}%</div>
+        <div class="metric-card-box">
+            <div class="title">ارتباط شواهد</div>
+            <div class="num" style="color: #34d399;">{rel_percent}%</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c5:
         faith_percent = int(evaluation["faithfulness"] * 100)
         st.markdown(f"""
-        <div class="metric-box">
-            <div class="metric-label">وفاداری به متن</div>
-            <div class="metric-val" style="color: #4ade80;">{faith_percent}%</div>
+        <div class="metric-card-box">
+            <div class="title">وفاداری به متن</div>
+            <div class="num" style="color: #4ade80;">{faith_percent}%</div>
         </div>
         """, unsafe_allow_html=True)
