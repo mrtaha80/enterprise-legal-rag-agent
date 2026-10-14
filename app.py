@@ -10,78 +10,89 @@ from src.generator import generate_answer
 from src.evaluator import RagEvaluator
 
 st.set_page_config(
-    page_title="Legal RAG Enterprise System",
+    page_title="سامانه سازمانی تحلیل و اعتبارسنجی قراردادها",
     page_icon="⚖️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# اعمال CSS هدفمند بدون خراب کردن آیکون‌های سیستمی
+# حل کامل باگ سایدبار و اصلاح جهت‌دهی و آیکون‌ها
 st.markdown("""
 <style>
     @import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
 
-    /* اعمال فونت فقط به متون، نه آیکون‌ها */
-    html, body, p, span, div, h1, h2, h3, h4, h5, h6, input, button {
-        font-family: 'Vazirmatn', system-ui, -apple-system, sans-serif;
+    /* اعمال فونت روی متون بدون ایجاد اختلال در آیکون‌ها */
+    html, body, p, span, h1, h2, h3, h4, h5, h6, input, textarea, button {
+        font-family: 'Vazirmatn', -apple-system, sans-serif !important;
     }
 
-    /* جلوگیری صریح از تغییر فونت آیکون‌های متریال استریم‌لیت */
-    [data-testid="stIcon"], i, [class*="material-icons"], [class*="styles_icon"] {
-        font-family: 'Material Icons', 'Material Symbols Rounded' !important;
+    /* جلوگیری کامل از خراب شدن آیکون‌های پیش‌فرض Streamlit */
+    [data-testid="stIcon"], i, svg, [class*="material-icons"] {
+        font-family: inherit !important;
     }
 
-    .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-        max-width: 1280px;
+    /* رفع باگ عمودی شدن محتوای سایدبار هنگام جمع شدن */
+    [data-testid="stSidebar"] {
+        overflow-x: hidden !important;
+    }
+    [data-testid="stSidebar"][aria-expanded="false"] * {
+        display: none !important;
     }
 
-    /* هدر */
-    .hero-container {
-        background: #111827;
-        border: 1px solid #1f2937;
+    /* جهت‌بندی راست‌به‌چپ برای بدنه */
+    .stApp {
+        direction: rtl;
+        text-align: right;
+        background-color: #0b0f17;
+    }
+
+    /* کادر هدر صفحه */
+    .custom-header {
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 12px;
-        padding: 20px 24px;
+        padding: 22px 26px;
         margin-bottom: 24px;
     }
-    .hero-container h2 {
-        color: #f9fafb;
+    .custom-header h2 {
+        color: #f8fafc;
         font-size: 22px;
         margin-bottom: 6px;
     }
-    .hero-container p {
-        color: #9ca3af;
-        font-size: 13px;
+    .custom-header p {
+        color: #94a3b8;
+        font-size: 13.5px;
         margin: 0;
     }
 
-    /* کادر پاسخ */
-    .response-card {
-        background: #0f172a;
+    /* کادر پاسخ مدل */
+    .answer-card {
+        background: #111827;
+        border: 1px solid #1f2937;
         border-right: 4px solid #38bdf8;
-        border: 1px solid #1e293b;
         border-radius: 10px;
         padding: 20px;
-        color: #f1f5f9;
-        line-height: 1.8;
+        color: #f3f4f6;
+        line-height: 1.85;
         font-size: 15px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.25);
     }
 
-    /* کارت‌های متریک */
-    .metric-card-box {
+    /* باکس‌های داشبورد متریک */
+    .stat-box {
         background: #111827;
         border: 1px solid #1f2937;
         border-radius: 10px;
-        padding: 14px;
+        padding: 16px 10px;
         text-align: center;
     }
-    .metric-card-box .title {
+    .stat-label {
         font-size: 12px;
         color: #9ca3af;
-        margin-bottom: 4px;
+        margin-bottom: 6px;
     }
-    .metric-card-box .num {
-        font-size: 20px;
+    .stat-number {
+        font-size: 22px;
         font-weight: 700;
         direction: ltr;
         display: inline-block;
@@ -97,19 +108,19 @@ def get_services():
 
 db_service, retriever = get_services()
 
-# سربرگ اصلی
+# سربرگ صفحه
 st.markdown("""
-<div class="hero-container">
+<div class="custom-header">
     <h2>⚖️ سامانه سازمانی تحلیل و اعتبارسنجی قراردادها (Legal RAG)</h2>
     <p>بازیابی دوسطحی برداری و متقاطع • خردایش بندمحور • پایش تاخیر و ارزیابی کیفیت RAG Triad</p>
 </div>
 """, unsafe_allow_html=True)
 
-# نوار کناری
+# نوار سایدبار
 with st.sidebar:
     st.header("📂 مدیریت مستندات")
     uploaded_files = st.file_uploader(
-        "بارگذاری اسناد حقوقی یا مالی (PDF):",
+        "بارگذاری اسناد حقوقی و مالی (PDF):",
         type=["pdf"],
         accept_multiple_files=True
     )
@@ -143,7 +154,7 @@ with st.sidebar:
     - **LLM Engine:** Llama 3.2
     """)
 
-# ورودی جستجو
+# ورودی پرسش
 query = st.text_input(
     "پرسش حقوقی یا مالی خود را وارد کنید:",
     placeholder="مثلاً: شرایط جریمه تاخیر در تحویل چقدر است؟"
@@ -169,7 +180,7 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
     with col_ans:
         st.subheader("💡 پاسخ مستند سیستم:")
         formatted_answer = answer.replace("\n", "<br>")
-        st.markdown(f'<div class="response-card">{formatted_answer}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="answer-card">{formatted_answer}</div>', unsafe_allow_html=True)
 
     with col_chunks:
         st.subheader("📑 شواهد و بندهای مرتبط:")
@@ -188,49 +199,49 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
 
     st.markdown("---")
 
-    # داشبورد متریک‌ها
+    # داشبورد متریک‌های کیفیت و تاخیر
     st.subheader("📊 داشبورد رصدپذیری و سنجش کیفیت (Observability & Evaluation)")
     
     c1, c2, c3, c4, c5 = st.columns(5)
     
     with c1:
         st.markdown(f"""
-        <div class="metric-card-box">
-            <div class="title">زمان کل پاسخ‌دهی</div>
-            <div class="num" style="color: #60a5fa;">{total_ms} ms</div>
+        <div class="stat-box">
+            <div class="stat-label">زمان کل پاسخ‌دهی</div>
+            <div class="stat-number" style="color: #60a5fa;">{total_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c2:
         st.markdown(f"""
-        <div class="metric-card-box">
-            <div class="title">جستجو و بازچینی</div>
-            <div class="num" style="color: #fbbf24;">{ret_ms} ms</div>
+        <div class="stat-box">
+            <div class="stat-label">جستجو و بازچینی</div>
+            <div class="stat-number" style="color: #fbbf24;">{ret_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c3:
         st.markdown(f"""
-        <div class="metric-card-box">
-            <div class="title">استنتاج مدل (LLM)</div>
-            <div class="num" style="color: #c084fc;">{gen_ms} ms</div>
+        <div class="stat-box">
+            <div class="stat-label">استنتاج مدل (LLM)</div>
+            <div class="stat-number" style="color: #c084fc;">{gen_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c4:
         rel_percent = int(evaluation["context_relevance"] * 100)
         st.markdown(f"""
-        <div class="metric-card-box">
-            <div class="title">ارتباط شواهد</div>
-            <div class="num" style="color: #34d399;">{rel_percent}%</div>
+        <div class="stat-box">
+            <div class="stat-label">ارتباط شواهد</div>
+            <div class="stat-number" style="color: #34d399;">{rel_percent}%</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c5:
         faith_percent = int(evaluation["faithfulness"] * 100)
         st.markdown(f"""
-        <div class="metric-card-box">
-            <div class="title">وفاداری به متن</div>
-            <div class="num" style="color: #4ade80;">{faith_percent}%</div>
+        <div class="stat-box">
+            <div class="stat-label">وفاداری به متن</div>
+            <div class="stat-number" style="color: #4ade80;">{faith_percent}%</div>
         </div>
         """, unsafe_allow_html=True)
