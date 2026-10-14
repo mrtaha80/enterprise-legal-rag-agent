@@ -16,22 +16,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# استایل ایزوله‌شده بدون تداخل با فونت آیکون‌ها و المان‌های داخلی استریم‌لیت
+# استایل ایزوله با هدایت کاراکتری دقیق
 st.markdown("""
 <style>
     @import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
 
-    /* اعمال فونت منحصراً بر روی عناصر متنی استاندارد */
     p, span, div.stMarkdown, input, textarea, label {
         font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* بنر اصلی Glassmorphism */
+    /* بنر اصلی با گرادیان سرمه‌ای تیره */
     .glass-banner {
-        background: radial-gradient(100% 100% at 50% 0%, rgba(30, 58, 138, 0.25) 0%, rgba(15, 23, 42, 0.8) 100%);
-        border: 1px solid rgba(59, 130, 246, 0.2);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        backdrop-filter: blur(8px);
+        background: radial-gradient(100% 100% at 50% 0%, rgba(30, 58, 138, 0.3) 0%, rgba(15, 23, 42, 0.9) 100%);
+        border: 1px solid rgba(59, 130, 246, 0.25);
         border-radius: 16px;
         padding: 24px 30px;
         margin-bottom: 25px;
@@ -50,7 +47,17 @@ st.markdown("""
         margin: 0;
     }
 
-    /* جعبه پاسخ سیستم */
+    /* تیترهای بخش‌ها با تراز کاملاً راست */
+    .section-header {
+        font-size: 18px;
+        font-weight: 700;
+        color: #f1f5f9;
+        margin-bottom: 12px;
+        direction: rtl;
+        text-align: right;
+    }
+
+    /* کادر پاسخ سیستم */
     .glass-answer {
         background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
         border: 1px solid rgba(56, 189, 248, 0.25);
@@ -62,46 +69,30 @@ st.markdown("""
         color: #f1f5f9;
         direction: rtl;
         text-align: right;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
     }
 
-    /* کارت‌های داشبورد متریک */
+    /* کارت‌های متریک داشبورد پایین صفحه */
     .kpi-card {
-        background: rgba(17, 24, 39, 0.75);
+        background: rgba(17, 24, 39, 0.85);
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 14px;
-        padding: 16px 12px;
+        padding: 18px 12px;
         text-align: center;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        transition: transform 0.2s ease, border-color 0.2s ease;
-    }
-    .kpi-card:hover {
-        transform: translateY(-2px);
-        border-color: rgba(56, 189, 248, 0.3);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
     }
     .kpi-title {
-        font-size: 12px;
-        font-weight: 500;
-        color: #94a3b8;
+        font-size: 13px;
+        font-weight: 600;
+        color: #cbd5e1;
         margin-bottom: 8px;
+        line-height: 1.4;
+        direction: rtl;
     }
     .kpi-val {
         font-size: 22px;
         font-weight: 800;
-        letter-spacing: -0.5px;
         direction: ltr;
         display: inline-block;
-    }
-
-    /* کارت شواهد و بندها */
-    .clause-card {
-        background: rgba(15, 23, 42, 0.6);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 10px;
-        padding: 14px;
-        margin-bottom: 12px;
-        direction: rtl;
-        text-align: right;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -114,7 +105,7 @@ def get_services():
 
 db_service, retriever = get_services()
 
-# بنر معرفی
+# بنر اصلی
 st.markdown("""
 <div class="glass-banner">
     <h1>⚖️ سامانه سازمانی تحلیل و اعتبارسنجی قراردادها (Legal RAG)</h1>
@@ -124,7 +115,7 @@ st.markdown("""
 
 # نوار سایدبار
 with st.sidebar:
-    st.subheader("📂 مدیریت مستندات")
+    st.markdown('<div class="section-header">📂 مدیریت مستندات</div>', unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
         "بارگذاری فایل‌های قرارداد (PDF):",
         type=["pdf"],
@@ -160,7 +151,7 @@ with st.sidebar:
     - **LLM Engine:** Llama 3.2
     """)
 
-# ورودی پرسش
+# فرم ورودی
 query = st.text_input(
     "پرسش حقوقی یا مالی خود را وارد کنید:",
     placeholder="مثلاً: شرایط جریمه تاخیر در تحویل چقدر است؟"
@@ -170,7 +161,7 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
     total_start = time.perf_counter()
     
     with st.spinner("در حال بازیابی مستندات و استنتاج مدل..."):
-        # ۱. جستجو و بازچینی
+        # ۱. بازیابی و ریرنکینگ
         t_ret = time.perf_counter()
         contexts = retriever.retrieve(query, top_k=3)
         ret_ms = round((time.perf_counter() - t_ret) * 1000, 1)
@@ -180,19 +171,19 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
         answer = generate_answer(query, contexts)
         gen_ms = round((time.perf_counter() - t_gen) * 1000, 1)
         
-        # ۳. ارزیابی سلامت و وفاداری پاسخ
+        # ۳. ارزیابی کیفی RAG Triad
         evaluation = RagEvaluator.evaluate_rag_triad(query=query, answer=answer, contexts=contexts)
         total_ms = round((time.perf_counter() - total_start) * 1000, 1)
 
     col_ans, col_chunks = st.columns([6, 4])
     
     with col_ans:
-        st.subheader("💡 پاسخ مستند سیستم:")
+        st.markdown('<div class="section-header">💡 پاسخ مستند سیستم:</div>', unsafe_allow_html=True)
         formatted_answer = answer.replace("\n", "<br>")
         st.markdown(f'<div class="glass-answer">{formatted_answer}</div>', unsafe_allow_html=True)
 
     with col_chunks:
-        st.subheader("📑 شواهد و بندهای مرتبط:")
+        st.markdown('<div class="section-header">📑 شواهد و بندهای مرتبط:</div>', unsafe_allow_html=True)
         if contexts:
             for idx, c in enumerate(contexts):
                 score = c.get("rerank_score", 0.0)
@@ -208,8 +199,8 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
 
     st.markdown("---")
 
-    # داشبورد متریک‌های سازمانی
-    st.subheader("📊 داشبورد رصدپذیری و سنجش کیفیت (Observability & Evaluation)")
+    # داشبورد متریک‌ها
+    st.markdown('<div class="section-header">📊 داشبورد رصدپذیری و سنجش کیفیت (Observability & Evaluation)</div>', unsafe_allow_html=True)
     
     c1, c2, c3, c4, c5 = st.columns(5)
     
@@ -224,7 +215,7 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
     with c2:
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-title">بازیابی و ریرنک</div>
+            <div class="kpi-title">جستجو و بازچینی</div>
             <div class="kpi-val" style="color: #fbbf24;">{ret_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
@@ -241,7 +232,7 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
         rel_percent = int(evaluation["context_relevance"] * 100)
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-title">ارتباط شواهد (Relevance)</div>
+            <div class="kpi-title">ارتباط شواهد</div>
             <div class="kpi-val" style="color: #34d399;">{rel_percent}%</div>
         </div>
         """, unsafe_allow_html=True)
@@ -250,7 +241,7 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
         faith_percent = int(evaluation["faithfulness"] * 100)
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-title">وفاداری به متن (Faithfulness)</div>
+            <div class="kpi-title">وفاداری به متن</div>
             <div class="kpi-val" style="color: #4ade80;">{faith_percent}%</div>
         </div>
         """, unsafe_allow_html=True)

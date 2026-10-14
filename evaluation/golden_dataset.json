@@ -1,0 +1,290 @@
+[
+  {
+    "id": "TC-01",
+    "category": "factual_penalty",
+    "language": "fa",
+    "query": "جریمه تاخیر در تحویل فازها چقدر است؟",
+    "expected_keywords": ["1,000", "یورو", "eur", "day"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-02",
+    "category": "factual_penalty",
+    "language": "en",
+    "query": "What is the penalty for late delivery per business day?",
+    "expected_keywords": ["1,000", "EUR", "day", "business"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-03",
+    "category": "financial_contract_value",
+    "language": "fa",
+    "query": "مبلغ کل قرارداد و ارزش ریالی یا یورویی آن چقدر تعیین شده است؟",
+    "expected_keywords": ["value", "مبلغ", "ارزش", "قرارداد"],
+    "expected_page": 1,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-04",
+    "category": "financial_contract_value",
+    "language": "en",
+    "query": "What is the total contract value specified in Article 1?",
+    "expected_keywords": ["contract", "value", "total", "Article 1"],
+    "expected_page": 1,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-05",
+    "category": "governing_law",
+    "language": "fa",
+    "query": "قانون حاکم بر این قرارداد و مرجع حل اختلاف کدام است؟",
+    "expected_keywords": ["قانون", "داوری", "اختلاف", "دادگاه"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-06",
+    "category": "governing_law",
+    "language": "en",
+    "query": "Which jurisdiction and governing law applies to this agreement?",
+    "expected_keywords": ["governing", "law", "jurisdiction", "arbitration"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-07",
+    "category": "anti_hallucination",
+    "language": "fa",
+    "query": "شرایط بیمه تکمیلی درمان و خدمات دندان‌پزشکی پرسنل پیمانکار چیست؟",
+    "expected_keywords": ["یافت نشد", "اشاره‌ای نشده", "ذکر نشده"],
+    "expected_page": null,
+    "is_out_of_scope": true
+  },
+  {
+    "id": "TC-08",
+    "category": "anti_hallucination",
+    "language": "en",
+    "query": "What are the requirements for employee healthcare coverage and dental plan?",
+    "expected_keywords": ["not found", "no mention", "یافت نشد"],
+    "expected_page": null,
+    "is_out_of_scope": true
+  },
+  {
+    "id": "TC-09",
+    "category": "anti_hallucination",
+    "language": "fa",
+    "query": "نحوه پرداخت پاداش سالانه به مدیر پروژه چگونه محاسبه می‌شود؟",
+    "expected_keywords": ["یافت نشد", "اشاره‌ای نشده"],
+    "expected_page": null,
+    "is_out_of_scope": true
+  },
+  {
+    "id": "TC-10",
+    "category": "anti_hallucination",
+    "language": "en",
+    "query": "What is the annual stock option vesting schedule for consultants?",
+    "expected_keywords": ["not found", "no mention"],
+    "expected_page": null,
+    "is_out_of_scope": true
+  },
+  {
+    "id": "TC-11",
+    "category": "confidentiality",
+    "language": "fa",
+    "query": "مدت زمان محرمانگی اطلاعات پس از خاتمه قرارداد چند سال است؟",
+    "expected_keywords": ["محرمانگی", "سال", "confidentiality"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-12",
+    "category": "confidentiality",
+    "language": "en",
+    "query": "What is the survival period of the confidentiality obligations?",
+    "expected_keywords": ["confidentiality", "survival", "years"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-13",
+    "category": "force_majeure",
+    "language": "fa",
+    "query": "موارد فورس ماژور و حوادث غیرمترقبه شامل چه شرایطی است؟",
+    "expected_keywords": ["فورس ماژور", "force majeure", "حوادث"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-14",
+    "category": "force_majeure",
+    "language": "en",
+    "query": "How is Force Majeure defined and what is the notice window?",
+    "expected_keywords": ["force majeure", "notice", "days"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-15",
+    "category": "termination",
+    "language": "fa",
+    "query": "طرفین تحت چه شرایطی می‌توانند قرارداد را به صورت یک‌طرفه فسخ کنند؟",
+    "expected_keywords": ["فسخ", "termination", "اخطار", "notice"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-16",
+    "category": "termination",
+    "language": "en",
+    "query": "What is the notice period required for termination for convenience?",
+    "expected_keywords": ["termination", "notice", "days"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-17",
+    "category": "payment_milestones",
+    "language": "fa",
+    "query": "شرایط و مواعد پرداخت فازهای اجرایی پروژه چگونه است؟",
+    "expected_keywords": ["پرداخت", "فاز", "payment", "milestone"],
+    "expected_page": 1,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-18",
+    "category": "payment_milestones",
+    "language": "en",
+    "query": "What are the milestone triggers for invoice submission?",
+    "expected_keywords": ["milestone", "invoice", "payment"],
+    "expected_page": 1,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-19",
+    "category": "warranty_liability",
+    "language": "fa",
+    "query": "مدت دوره گارانتی و تضمین کیفیت خدمات چقدر تعیین شده است؟",
+    "expected_keywords": ["گارانتی", "تضمین", "warranty"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-20",
+    "category": "warranty_liability",
+    "language": "en",
+    "query": "What is the duration and scope of the contractor warranty?",
+    "expected_keywords": ["warranty", "defects", "months"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-21",
+    "category": "intellectual_property",
+    "language": "fa",
+    "query": "حقوق مالکیت فکری دستاوردهای فنی پروژه به چه کسی تعلق می‌گیرد؟",
+    "expected_keywords": ["مالکیت فکری", "ip", "intellectual property"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-22",
+    "category": "intellectual_property",
+    "language": "en",
+    "query": "Who retains intellectual property rights created under the deliverables?",
+    "expected_keywords": ["intellectual property", "rights", "ownership"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-23",
+    "category": "subcontracting",
+    "language": "fa",
+    "query": "آیا پیمانکار مجاز به واگذاری کار به پیمانکار دست دوم (Subcontractor) می‌باشد؟",
+    "expected_keywords": ["دست دوم", "واگذاری", "subcontract"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-24",
+    "category": "subcontracting",
+    "language": "en",
+    "query": "Is prior written consent needed for assignment or subcontracting?",
+    "expected_keywords": ["consent", "assignment", "subcontractor"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-25",
+    "category": "anti_hallucination",
+    "language": "fa",
+    "query": "حداکثر سقف مجاز مرخصی استعلاجی در طول سال چقدر است؟",
+    "expected_keywords": ["یافت نشد", "اشاره‌ای نشده"],
+    "expected_page": null,
+    "is_out_of_scope": true
+  },
+  {
+    "id": "TC-26",
+    "category": "anti_hallucination",
+    "language": "en",
+    "query": "What is the per diem travel reimbursement cap for international flights?",
+    "expected_keywords": ["not found", "no mention"],
+    "expected_page": null,
+    "is_out_of_scope": true
+  },
+  {
+    "id": "TC-27",
+    "category": "liability_cap",
+    "language": "fa",
+    "query": "سقف کل مسئولیت مدنی و خسارت (Liability Cap) چقدر است؟",
+    "expected_keywords": ["سقف", "مسئولیت", "liability", "cap"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-28",
+    "category": "liability_cap",
+    "language": "en",
+    "query": "Is there a limitation of liability clause and what is the maximum aggregate cap?",
+    "expected_keywords": ["limitation", "liability", "cap", "aggregate"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-29",
+    "category": "acceptance_criteria",
+    "language": "fa",
+    "query": "فرآیند تایید تحویل نهایی و صدور گواهی پذیرش به چه شکل است؟",
+    "expected_keywords": ["پذیرش", "تحویل", "acceptance"],
+    "expected_page": 1,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-30",
+    "category": "acceptance_criteria",
+    "language": "en",
+    "query": "How many business days does the client have to inspect and approve deliverables?",
+    "expected_keywords": ["inspection", "approval", "days"],
+    "expected_page": 1,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-31",
+    "category": "amendments",
+    "language": "fa",
+    "query": "نحوه اعمال تغییرات یا متمم در مفاد قرارداد چگونه است؟",
+    "expected_keywords": ["متمم", "کتبی", "تغییرات", "amendment"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  },
+  {
+    "id": "TC-32",
+    "category": "amendments",
+    "language": "en",
+    "query": "Can terms be modified orally or is a formal written amendment required?",
+    "expected_keywords": ["written", "amendment", "sign"],
+    "expected_page": 2,
+    "is_out_of_scope": false
+  }
+]
