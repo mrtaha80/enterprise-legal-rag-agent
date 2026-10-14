@@ -1,5 +1,6 @@
 ﻿from openai import OpenAI
 from src.config import settings
+from src.logger import trace_latency
 
 client = OpenAI(
     api_key=settings.OPENAI_API_KEY,
@@ -28,14 +29,16 @@ def generate_answer(query: str, retrieved_contexts: list[dict]) -> str:
     user_message = f"Context:\n{context_str}\n\nپرسش:\n{query}"
 
     try:
-        response = client.chat.completions.create(
-            model="llama3.2",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ],
-            temperature=0.0
-        )
+        # ردگیری و اندازه‌گیری دقیق زمان استنتاج مدل به میلی‌ثانیه
+        with trace_latency("llm_generation", query=query):
+            response = client.chat.completions.create(
+                model="llama3.2",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                temperature=0.0
+            )
         return response.choices[0].message.content
     except Exception as e:
         return f"خطا در ارتباط با مدل لوکال: {e}"

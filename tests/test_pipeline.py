@@ -1,7 +1,10 @@
 import pytest
+import logging
 from unittest.mock import patch, MagicMock
 from src.parser import extract_chunks_from_pdf
 from src.generator import generate_answer
+from src.logger import trace_latency
+from src.evaluator import RagEvaluator
 
 class TestLegalRagPipeline:
 
@@ -87,3 +90,28 @@ class TestLegalRagPipeline:
         penalty_chunk = next((c for c in chunks if "1,000 EUR" in c["content"]), None)
         assert penalty_chunk is not None, "بند جریمه باید استخراج شده باشد."
         assert "Article 2" in penalty_chunk["content"], "عنوان ماده (Article 2) نباید از مفاد جریمه جدا شده باشد."
+
+    def test_07_structured_logging_and_latency(self, retriever, caplog):
+        """تست تولید لاگ‌های JSON ساختاریافته و ثبت تاخیر عملیات (Latency Tracing)"""
+        with caplog.at_level(logging.INFO):
+            with trace_latency("unit_test_operation", query="test query"):
+                pass
+
+        stage_logged = any(
+            "unit_test_operation" in record.message or
+            (hasattr(record, "extra_fields") and record.extra_fields.get("stage") == "unit_test_operation")
+            for record in caplog.records
+        )
+        assert stage_logged, "مرحله عملیات و ترکینگ تاخیر باید با موفقیت در سیستم مانیتورینگ ثبت شود."
+
+    def test_08_rag_triad_quality_metrics(self, retriever):
+        """تست ارزیابی کیفی پاسخ و کانتکست بر اساس شاخص‌های وفاداری و ارتباط"""
+        query = "What is the penalty for late delivery?"
+        contexts = retriever.retrieve(query=query, top_k=2)
+        answer = "The penalty for late delivery is 1,000 EUR per business day."
+
+        evaluation = RagEvaluator.evaluate_rag_triad(query=query, answer=answer, contexts=contexts)
+
+        assert evaluation["context_relevance"] >= 0.70, f"ارتباط کانتکست پایین است: {evaluation['context_relevance']}"
+        assert evaluation["faithfulness"] >= 0.70, f"وفاداری پاسخ به مستندات پایین است: {evaluation['faithfulness']}"
+        assert evaluation["overall_rag_score"] >= 0.70
