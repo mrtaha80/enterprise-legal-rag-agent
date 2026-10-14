@@ -75,3 +75,15 @@ class TestLegalRagPipeline:
         assert any(marker in answer.lower() for marker in refusal_markers), (
             f"مدل نباید به اطلاعات غایب پاسخ مثبت دهد. پاسخ دریافت‌شده: {answer}"
         )
+
+    def test_06_clause_aware_chunking_integrity(self, sample_pdf_path):
+        """تست یکپارچگی مواد حقوقی و وجود متادیتای اختصاصی بند"""
+        chunks = extract_chunks_from_pdf(sample_pdf_path)
+        
+        # ۱. بررسی وجود متادیتای ساختاریافته بند (clause_id) در تمام چانک‌ها
+        assert all("clause_id" in c["metadata"] for c in chunks), "هر چانک باید دارای شناسه ساختاریافته بند (clause_id) باشد."
+        
+        # ۲. بررسی تفکیک‌ناپذیری متن بند و عنوان ماده حقوقی
+        penalty_chunk = next((c for c in chunks if "1,000 EUR" in c["content"]), None)
+        assert penalty_chunk is not None, "بند جریمه باید استخراج شده باشد."
+        assert "Article 2" in penalty_chunk["content"], "عنوان ماده (Article 2) نباید از مفاد جریمه جدا شده باشد."
