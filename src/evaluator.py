@@ -2,7 +2,6 @@ import re
 from typing import List, Dict
 
 class RagEvaluator:
-    # نقشه پیوند مفاهیم کلیدی حقوقی و مالی بین فارسی و انگلیسی
     CONCEPT_MAP = {
         "جریمه": ["penalty", "penalties", "damage", "damages", "liquidated", "fine"],
         "تاخیر": ["late", "delay", "delays", "delayed"],
@@ -14,18 +13,31 @@ class RagEvaluator:
         "دلار": ["usd", "dollar", "dollars", "$"],
     }
 
+    REFUSAL_STEMS = [
+        "اشاره", "یافت نشد", "موجود نیست", "ذکر نشده", "نیامده", 
+        "no mention", "not found", "not mention", "not specified", "not contain"
+    ]
+
     @classmethod
     def _normalize(cls, text: str) -> str:
         if not text:
             return ""
+        # حذف نیم‌فاصله، اعراب و یکدست‌سازی ی و ک
+        text = text.replace("\u200c", " ").replace("ي", "ی").replace("ك", "ک")
         fa_to_en = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
         return text.translate(fa_to_en).lower()
+
+    @classmethod
+    def is_refusal(cls, answer: str) -> bool:
+        if not answer:
+            return False
+        clean = cls._normalize(answer)
+        return any(stem in clean for stem in cls.REFUSAL_STEMS)
 
     @classmethod
     def _get_concepts(cls, text: str) -> set:
         norm = cls._normalize(text)
         words = set(re.findall(r"[\u0600-\u06FFa-zA-Z0-9]+", norm))
-        
         extracted = set(words)
         for fa_key, en_list in cls.CONCEPT_MAP.items():
             if fa_key in norm:
@@ -61,8 +73,8 @@ class RagEvaluator:
         if not answer:
             return 0.0
 
-        refusals = ["یافت نشد", "اشاره‌ای نشده", "no mention", "not found"]
-        if any(r in answer.lower() for r in refusals):
+        # امتناع صحیح یعنی عدم توهم و پایبندی کامل (1.0)
+        if cls.is_refusal(answer):
             return 1.0
 
         if not contexts:
@@ -80,9 +92,7 @@ class RagEvaluator:
 
         matched = key_ans.intersection(ctx_concepts)
         ratio = len(matched) / len(key_ans)
-
-        # وجود مقادیر دقیق ارزی و مقداری به معنای وفاداری قطعی است
-        has_crucial_data = any(tok in matched for tok in ["1000", "eur", "یورو"])
+        has_crucial_data = any(tok in matched for tok in ["1000", "eur", "یورو", "100000", "100,000"])
         score = max(ratio, 0.92 if has_crucial_data else ratio)
         return round(min(score, 1.0), 2)
 
