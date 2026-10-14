@@ -1,0 +1,50 @@
+name: Legal RAG Agent CI Pipeline
+
+on:
+  push:
+    branches: [ "main", "master", "dev" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  test-suite:
+    name: Run Enterprise RAG Test Suite (8 Tests)
+    runs-on: ubuntu-latest
+
+    # راه‌اندازی کانتینر Qdrant در محیط CI برای اجرای تست‌های وکتوری
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+          - 6334:6334
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest anyio pytest-mock
+
+      - name: Verify Qdrant Connection
+        run: |
+          curl --retry 5 --retry-delay 2 --retry-connrefused -s http://localhost:6333/readyz || exit 1
+
+      - name: Run Pytest Suite with Coverage & JSON Logs
+        env:
+          QDRANT_HOST: localhost
+          QDRANT_PORT: 6333
+          COLLECTION_NAME: legal_contracts
+          OPENAI_API_KEY: fake-key-for-mocked-ci
+          OPENAI_BASE_URL: http://localhost:11434/v1
+        run: |
+          python -m pytest -v -s
