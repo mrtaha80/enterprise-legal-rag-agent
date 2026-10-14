@@ -55,3 +55,20 @@ def trace_latency(stage_name: str, query: str = None):
             extra["error"] = metrics["error"]
             
         logger.info(f"Execution completed for stage: {stage_name}", extra={"extra_fields": extra})
+
+# سازگاری کامل برای ایمپورت‌های مختلف در سراسر پروژه
+class PipelineLoggerWrapper:
+    """کلاس پوشش‌دهنده جهت حفظ سازگاری با pipeline_logger.track_latency"""
+    @staticmethod
+    def track_latency(stage: str, query: str = None):
+        return trace_latency(stage, query)
+    
+    @staticmethod
+    def info(*args, **kwargs):
+        logger.info(*args, **kwargs)
+
+    @staticmethod
+    def error(*args, **kwargs):
+        logger.error(*args, **kwargs)
+
+pipeline_logger = PipelineLoggerWrapper()
