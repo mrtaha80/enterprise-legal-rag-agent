@@ -6,9 +6,11 @@ from src.config import settings
 
 class VectorDBService:
     def __init__(self):
+        # افزایش timeout به ۶۰ ثانیه برای جلوگیری از خطای ReadTimeout
         self.client = QdrantClient(
             host=settings.QDRANT_HOST,
             port=settings.QDRANT_PORT,
+            timeout=60,
             check_compatibility=False
         )
         self.collection_name = settings.COLLECTION_NAME
@@ -32,7 +34,7 @@ class VectorDBService:
             return
 
         texts_to_embed = [f"passage: {c['content']}" for c in chunks]
-        embeddings = self.embed_model.encode(texts_to_embed, show_progress_bar=True).tolist()
+        embeddings = self.embed_model.encode(texts_to_embed, show_progress_bar=False).tolist()
 
         points = []
         for chunk, vector in zip(chunks, embeddings):

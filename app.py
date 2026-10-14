@@ -3,7 +3,7 @@ import tempfile
 import os
 from src.parser import extract_chunks_from_pdf
 from src.vector_store import VectorDBService
-from src.retriever import AdvancedRetriever
+from src.retriever import HybridRetriever
 from src.generator import generate_answer
 
 st.set_page_config(page_title="Legal & Financial RAG Agent", layout="wide")
@@ -11,7 +11,7 @@ st.set_page_config(page_title="Legal & Financial RAG Agent", layout="wide")
 @st.cache_resource
 def get_services():
     db = VectorDBService()
-    retriever = AdvancedRetriever(db)
+    retriever = HybridRetriever()
     return db, retriever
 
 db_service, retriever = get_services()
@@ -55,4 +55,5 @@ if st.button("جستجو و تحلیل") and query:
         for idx, c in enumerate(contexts):
             with st.expander(f"منبع {idx+1}: {c['source']} (صفحه {c['page']})"):
                 st.write(c["text"])
-                st.caption(f"امتیاز بازچینی (Rerank Score): {c['rerank_score']:.4f}")
+                if "rerank_score" in c:
+                    st.caption(f"امتیاز بازچینی (Rerank Score): {c['rerank_score']:.4f}")
