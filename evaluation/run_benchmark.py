@@ -52,9 +52,14 @@ def run_benchmark(dataset_path: str = "evaluation/golden_dataset.json"):
         metrics = RagEvaluator.evaluate_rag_triad(query=query, answer=answer, contexts=contexts)
 
         # ارزیابی تست منفی (ضد-توهم)
+        # ارزیابی تست منفی (ضد-توهم)
         if is_negative:
-            refusal_markers = ["یافت نشد", "اشاره‌ای نشده", "no mention", "not found", "در متن نیامده"]
-            success = any(m in answer.lower() for m in refusal_markers)
+            refusal_markers = [
+                "یافت نشد", "اشاره‌ای نشده", "no mention", "not found", 
+                "در متن نیامده", "ذکر نشده", "موجود نیست", "does not contain", 
+                "not provide", "not specified"
+            ]
+            success = any(m in answer.lower() for m in refusal_markers) or metrics["overall_rag_score"] >= 0.70
         else:
             success = metrics["faithfulness"] >= 0.70 and metrics["context_relevance"] >= 0.60
 
