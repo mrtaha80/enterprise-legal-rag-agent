@@ -9,32 +9,36 @@ def generate_answer(query: str, contexts: list) -> str:
     if not contexts:
         return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
 
-    # خلاصه‌سازی و آماده‌سازی متن چانک‌ها جهت کاهش حجم توکن ورودی
     context_blocks = []
     for idx, c in enumerate(contexts, 1):
         text = (c.get("text") or c.get("content") or "").strip()
-        source = c.get("source", "مستند")
+        source = c.get("source", "contract.pdf")
         page = c.get("page", 1)
-        context_blocks.append(f"[{idx}] سند: {source} (صفحه {page}):\n{text}")
+        if text:
+            context_blocks.append(f"--- Document [{idx}]: {source} (Page {page}) ---\n{text}")
+
+    if not context_blocks:
+        return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
 
     combined_context = "\n\n".join(context_blocks)
 
-    system_instruction = (
-        "شما یک دستیار هوشمند استخراج و تحلیل حقوقی قراردادها هستید. "
-        "با تکیه دقیق بر متن مستندات زیر، به سوال کاربر به زبان فارسی پاسخ شفاف و دقیق دهید. "
-        "در صورتی که پاسخ شامل ارقام مالی، مبالغ جریمه، مهلت‌ها یا مواعد تحویل است، آن را دقیق ذکر کنید و شماره سند یا صفحه را ارجاع دهید. "
-        "تنها در صورتی که واقعاً هیچ اطلاعاتی در متن وجود ندارد بگویید: در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
-    )
+    prompt = f"""You are a precise enterprise legal and financial AI assistant.
+Your task is to answer the user's Persian question accurately based ONLY on the provided contract clauses below.
+Note: The contract clauses may be in English or Persian. Translate and map legal concepts accurately (for example: Penalty / Liquidated Damages / Delay = جریمه تاخیر در تحویل, Contract Value / Fee = مبلغ قرارداد, Termination = فسخ).
 
-    prompt = f"""{system_instruction}
+Rules:
+1. Write your final answer in clear, professional Persian (فارسی).
+2. Extract exact numbers, percentages, currencies (EUR, USD, etc.), time limits, and cite the Document name and Page number.
+3. ONLY if the provided clauses contain zero relevant information about the topic, reply exactly:
+"در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
 
-متن مستندات قرارداد:
+Contract Clauses:
 {combined_context}
 
-پرسش کاربر:
+User Question (in Persian):
 {query}
 
-پاسخ حقوقی مستند:"""
+Answer in Persian (پاسخ مستند به فارسی):"""
 
     try:
         with pipeline_logger.track_latency("llm_generation", query=query):
@@ -47,19 +51,21 @@ def generate_answer(query: str, contexts: list) -> str:
                     "options": {
                         "temperature": 0.1,
                         "num_predict": 250,
-                        "num_ctx": 3072
+                        "num_ctx": 2048
                     }
                 },
-                timeout=120  # مهلت کافی برای اجرای پاسخ روی پردازنده
+                timeout=120
             )
             if response.status_code == 200:
                 data = response.json()
                 ans = data.get("response", "").strip()
-                return ans if ans else "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
+                if ans:
+                    return ans
+                return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
             
-            logger.error(f"Ollama returned status code: {response.status_code}")
-            return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
+            logger.error(f"Ollama HTTP {response.status_code}: {response.text}")
+            return f"⚠️ خطا در سرویس مدل زبانی (کد {response.status_code}): لطفاً مطمئن شوید مدل {MODEL_NAME} در Ollama دانلود شده است."
 
     except Exception as e:
         logger.error(f"Error during LLM generation: {str(e)}")
-        return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
+        return f"⚠️ خطا در ارتباط با موتور Ollama: {str(e)}"

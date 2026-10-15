@@ -9,7 +9,6 @@ from src.logger import pipeline_logger, logger
 
 class VectorDBService:
     def __init__(self):
-        # اتصال منعطف و سازگار با شبکه داکر و محلی با سقف زمان انتظار ۶۰ ثانیه
         self.client = QdrantClient(
             host=settings.QDRANT_HOST,
             port=settings.QDRANT_PORT,
@@ -18,7 +17,6 @@ class VectorDBService:
         )
         self.collection_name = settings.COLLECTION_NAME
         
-        # بارگذاری مدل و استخراج خودکار طول بردار با متد جدید (بدون اخطار FutureWarning)
         self.embed_model = SentenceTransformer(settings.EMBEDDING_MODEL)
         if hasattr(self.embed_model, "get_embedding_dimension"):
             self.vector_dim = self.embed_model.get_embedding_dimension()
@@ -28,7 +26,6 @@ class VectorDBService:
         self._ensure_collection_exists()
 
     def _ensure_collection_exists(self):
-        """اطمینان از وجود کالکشن و ایجاد آن بر اساس شباهت کسینوسی"""
         try:
             collections = [c.name for c in self.client.get_collections().collections]
             if self.collection_name not in collections:
@@ -43,14 +40,23 @@ class VectorDBService:
         except Exception as e:
             logger.error(f"Error ensuring collection '{self.collection_name}': {str(e)}")
 
-    def insert_chunks(self, chunks: List[Dict[str, Any]]):
-        """تبدیل چانک‌ها به امبدینگ و ثبت نقطه‌ای در Qdrant با متادیتا کامل"""
+    def reset_collection(self):
+        """پاکسازی کالکشن برای جلوگیری از انباشت چانک‌های تکراری هنگام آپلود مجدد"""
+        try:
+            self.client.delete_collection(collection_name=self.collection_name)
+        except Exception:
+            pass
+        self._ensure_collection_exists()
+
+    def insert_chunks(self, chunks: List[Dict[str, Any]], clear_existing: bool = True):
         if not chunks:
             return
 
-        self._ensure_collection_exists()
+        if clear_existing:
+            self.reset_collection()
+        else:
+            self._ensure_collection_exists()
 
-        # استاندارد فرمت ورودی مدل‌های نوین (پیشوند passage)
         texts_to_embed = [
             f"passage: {c.get('content') or c.get('text', '')}"
             for c in chunks
@@ -59,29 +65,33 @@ class VectorDBService:
         embeddings = self.embed_model.encode(texts_to_embed, show_progress_bar=False).tolist()
 
         points = []
-        for chunk, vector in zip(chunks, embeddings):
+        for idx, (chunk, vector) in enumerate(zip(chunks, embeddings)):
             metadata = chunk.get("metadata", {})
-            content = chunk.get("content") or chunk.get("text", "")
+            content = (chunk.get("content") or chunk.get("text", "")).strip()
             source = metadata.get("source") or chunk.get("source", "unknown_contract.pdf")
             page = metadata.get("page") or chunk.get("page", 1)
+            clause_id = metadata.get("clause_id", f"p{page}_c{idx+1}")
+
+            # تولید ID یکتا بر اساس محتوا تا هیچ متنی دوبار ذخیره نشود
+            deterministic_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{source}_{page}_{content[:100]}"))
 
             points.append(
                 PointStruct(
-                    id=str(uuid.uuid4()),
+                    id=deterministic_id,
                     vector=vector,
                     payload={
                         "text": content,
                         "source": source,
-                        "page": page
+                        "page": page,
+                        "clause_id": clause_id
                     }
                 )
             )
 
         self.client.upsert(collection_name=self.collection_name, points=points)
-        logger.info(f"Successfully inserted {len(points)} chunks into '{self.collection_name}'.")
+        logger.info(f"Successfully inserted {len(points)} unique chunks into '{self.collection_name}'.")
 
     def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """جستجوی شباهت معنایی با لاگینگ ساختاریافته تاخیر"""
         self._ensure_collection_exists()
         
         with pipeline_logger.track_latency("vector_search", query=query):
@@ -94,12 +104,20 @@ class VectorDBService:
             )
 
             results = []
+            seen_texts = set()
             for hit in search_result.points:
                 payload = hit.payload or {}
+                text = payload.get("text", "").strip()
+                # جلوگیری از برگشت چانک‌های تکراری در نتایج
+                if not text or text in seen_texts:
+                    continue
+                seen_texts.add(text)
+
                 results.append({
-                    "text": payload.get("text", ""),
+                    "text": text,
                     "source": payload.get("source", "unknown"),
                     "page": payload.get("page", 1),
+                    "metadata": {"clause_id": payload.get("clause_id", "ثبت‌نشده")},
                     "score": round(hit.score, 4) if hasattr(hit, "score") and hit.score else 0.0
                 })
 

@@ -100,11 +100,10 @@ st.markdown("""
 @st.cache_resource
 def get_services():
     db = VectorDBService()
-    retriever = HybridRetriever()
+    retriever = HybridRetriever(vector_db=db)
     return db, retriever
 
 db_service, retriever = get_services()
-
 # بنر اصلی
 st.markdown("""
 <div class="glass-banner">
@@ -124,7 +123,7 @@ with st.sidebar:
     
     if st.button("🚀 پردازش و ایندکس برداری", use_container_width=True):
         if uploaded_files:
-            total_chunks = 0
+            all_new_chunks = []
             start_ingest = time.perf_counter()
             with st.spinner("در حال تفکیک مواد قانونی و بردارسازی..."):
                 for uploaded_file in uploaded_files:
@@ -133,12 +132,14 @@ with st.sidebar:
                         tmp_path = tmp.name
                     
                     chunks = extract_chunks_from_pdf(tmp_path, source_name=uploaded_file.name)
-                    db_service.insert_chunks(chunks)
-                    total_chunks += len(chunks)
+                    all_new_chunks.extend(chunks)
                     os.remove(tmp_path)
+                
+                # پاکسازی نسخه‌های تکراری قبلی و درج یکپارچه بندهای جدید
+                db_service.insert_chunks(all_new_chunks, clear_existing=True)
             
             elapsed = round((time.perf_counter() - start_ingest) * 1000, 1)
-            st.success(f"{total_chunks} بند حقوقی در {elapsed} ms ذخیره شد.")
+            st.success(f"{len(all_new_chunks)} بند حقوقی یکتا در {elapsed} ms ذخیره شد.")
         else:
             st.warning("ابتدا یک فایل PDF انتخاب کنید.")
             
