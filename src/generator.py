@@ -1,40 +1,49 @@
-﻿from typing import List, Dict, Any
+﻿import uuid
+from typing import List, Dict, Any
 import requests
 from src.config import settings
+from src.security import SecurityGuard
 from src.logger import pipeline_logger, logger
+
+GENERIC_LLM_ERROR_MSG = "⚠️ سرویس مدل زبانی در دسترس نیست یا با خطا مواجه شد. لطفاً تنظیمات سرویس را بررسی کنید."
 
 
 class LLMProviderClient:
-    """جداسازی دقیق لایه ارتباط با Provider مدل زبانی (Ollama یا OpenAI-Compatible API)"""
+    """لایه ارتباط امن با Provider مدل زبانی بدون نشت اطلاعات حساس در لاگ یا رابط کاربری"""
 
     @staticmethod
     def generate(prompt: str) -> str:
         provider = settings.LLM_PROVIDER
+        error_id = uuid.uuid4().hex[:8]
 
         if provider == "openai_compatible":
             headers = {
                 "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
             payload = {
                 "model": settings.LLM_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": settings.LLM_TEMPERATURE,
-                "max_tokens": settings.LLM_MAX_TOKENS
+                "max_tokens": settings.LLM_MAX_TOKENS,
             }
             response = requests.post(
                 f"{settings.OPENAI_BASE_URL.rstrip('/')}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=120
+                timeout=120,
             )
             if response.status_code == 200:
                 data = response.json()
                 return data["choices"][0]["message"]["content"].strip()
-            logger.error(f"OpenAI-Compatible HTTP {response.status_code}: {response.text}")
-            return f"⚠️ خطا در سرویس مدل زبانی (کد {response.status_code})"
 
-        # پیش‌فرض: سرویس محلی Ollama با پنجره کانتکست بزرگ (num_ctx=4096)
+            safe_err = SecurityGuard.sanitize_http_error(response.text, max_len=180)
+            logger.error(
+                f"OpenAI-Compatible HTTP {response.status_code} [err_id={error_id}]: {safe_err}"
+            )
+            return GENERIC_LLM_ERROR_MSG
+
+        # پیش‌فرض: سرویس محلی Ollama
         response = requests.post(
             settings.OLLAMA_URL,
             json={
@@ -44,21 +53,22 @@ class LLMProviderClient:
                 "options": {
                     "temperature": settings.LLM_TEMPERATURE,
                     "num_predict": settings.LLM_MAX_TOKENS,
-                    "num_ctx": settings.LLM_NUM_CTX
-                }
+                    "num_ctx": settings.LLM_NUM_CTX,
+                },
             },
-            timeout=120
+            timeout=120,
         )
         if response.status_code == 200:
             data = response.json()
             return data.get("response", "").strip()
 
-        logger.error(f"Ollama HTTP {response.status_code}: {response.text}")
-        return f"⚠️ خطا در سرویس مدل زبانی (کد {response.status_code})"
+        safe_err = SecurityGuard.sanitize_http_error(response.text, max_len=180)
+        logger.error(f"Ollama HTTP {response.status_code} [err_id={error_id}]: {safe_err}")
+        return GENERIC_LLM_ERROR_MSG
 
 
 def extract_deterministic_citations(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """استخراج قطعی استنادها مستقیماً از متاداده‌ی واقعی اسناد بازیابی‌شده (بدون اعتماد کور به مدل)"""
+    """استخراج قطعی استنادها مستقیماً از متاداده‌ی واقعی اسناد بازیابی‌شده"""
     citations = []
     seen = set()
     for c in contexts:
@@ -72,7 +82,7 @@ def extract_deterministic_citations(contexts: List[Dict[str, Any]]) -> List[Dict
             citations.append({
                 "source": source,
                 "page": page,
-                "clause_id": clause_id
+                "clause_id": clause_id,
             })
     return citations
 
@@ -80,13 +90,16 @@ def extract_deterministic_citations(contexts: List[Dict[str, Any]]) -> List[Dict
 def generate_structured_answer(query: str, contexts: List[Dict[str, Any]]) -> Dict[str, Any]:
     """برگرداندن پاسخ نهایی در ساختار استاندارد شامل متن پاسخ، لیست استنادهای قطعی و وضعیت شواهد"""
     answer_text = generate_answer(query, contexts)
-    insufficient = "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است" in answer_text
+    insufficient = (
+        "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است" in answer_text
+        or answer_text.startswith("⚠️")
+    )
     citations = [] if insufficient else extract_deterministic_citations(contexts)
 
     return {
         "answer": answer_text,
         "citations": citations,
-        "insufficient_evidence": insufficient
+        "insufficient_evidence": insufficient,
     }
 
 
@@ -140,6 +153,8 @@ Direct Answer in Persian:"""
                 ans = ans.replace("در متن ارائه‌شده اشاره‌ای به این موضوع نشده است.", "").strip()
 
             return ans if ans else "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
-    except Exception as e:
-        logger.error(f"Error during LLM generation: {str(e)}")
-        return f"⚠️ خطا در ارتباط با سرویس مدل زبانی: {str(e)}"
+    except Exception as exc:
+        err_id = uuid.uuid4().hex[:8]
+        safe_detail = SecurityGuard.sanitize_http_error(str(exc), max_len=160)
+        logger.error(f"LLM generation exception [err_id={err_id}]: {safe_detail}")
+        return GENERIC_LLM_ERROR_MSG

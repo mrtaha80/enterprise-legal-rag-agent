@@ -3,6 +3,7 @@ import tempfile
 import os
 import time
 import html
+import json
 import hashlib
 from pathlib import Path
 from src.config import settings
@@ -11,7 +12,7 @@ from src.vector_store import VectorDBService
 from src.retriever import HybridRetriever
 from src.generator import generate_structured_answer
 from src.evaluator import RagEvaluator
-from src.security import security_guard
+from src.security import SecurityGuard
 
 MAX_FILE_SIZE_BYTES = settings.MAX_FILE_SIZE_MB * 1024 * 1024
 
@@ -19,7 +20,7 @@ st.set_page_config(
     page_title="Enterprise Legal RAG System",
     page_icon="⚖️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 st.markdown("""
@@ -121,38 +122,45 @@ def get_services():
 
 db_service, retriever = get_services()
 
-# بنر اصلی و سلب مسئولیت حقوقی (Legal Disclaimer)
 st.markdown("""
 <div class="glass-banner">
-    <h1>⚖️ سامانه سازمانی تحلیل و اعتبارسنجی قراردادها (Legal RAG)</h1>
-    <p>موتور استنتاج مبتنی بر تفکیک بندمحور • بازیابی ترکیبی واقعی (Hybrid RRF) • ایزوله‌سازی چندکاربره (Multi-Tenant ACL)</p>
+    <h1>⚖️ سامانه سازمانی تحلیل و اعتبارسنجی قراردادها (Persian-First Legal RAG)</h1>
+    <p>تفکیک بندمحور (Clause-Aware) • بازیابی ترکیبی (Dense + Normalized Lexical Overlap + RRF) • ایزوله‌سازی داده (Multi-Tenant Data Isolation)</p>
 </div>
 <div class="legal-disclaimer">
-    ⚠️ <strong>سلب مسئولیت حقوقی (Legal Disclaimer):</strong> خروجی‌های این سامانه صرفاً جنبه کمکی، تحلیلی و اطلاع‌رسانی در بررسی متون قراردادی دارد و به هیچ عنوان جایگزین مشاوره حقوقی رسمی، نظر وکیل دادگستری یا کارشناس رسمی دادگستری نمی‌باشد. همچنین شاخص‌های کیفیت نمایش‌داده‌شده در داشبورد، معیارهای اکتشافی (Heuristic Indicators) هستند.
+    ⚠️ <strong>سلب مسئولیت حقوقی (Legal Disclaimer):</strong> خروجی‌های این سامانه صرفاً جنبه کمکی و تحلیلی دارد و جایگزین مشاوره حقوقی رسمی یا نظر وکیل دادگستری نمی‌باشد. همچنین متریک‌های لحظه‌ای داشبورد، شاخص‌های اکتشافی (Heuristic Indicators) هستند.
 </div>
 """, unsafe_allow_html=True)
 
-# نوار سایدبار: احراز هویت و کنترل دسترسی به اسناد
 with st.sidebar:
-    st.markdown('<div class="section-header">🔐 احراز هویت و فضای کاری</div>', unsafe_allow_html=True)
-    username = st.text_input("نام کاربری / شناسه واحد:", value="legal_unit_1")
-    access_pin = st.text_input("رمز دسترسی سازمانی:", type="password", placeholder="پیش‌فرض: 1234")
+    st.markdown('<div class="section-header">🔐 جداسازی فضای کاری (Demo Shared-PIN Gate)</div>', unsafe_allow_html=True)
+    st.caption(
+        "توجه معماری: ایزوله‌سازی داده (`tenant_id`) در لایه Qdrant به‌طور کامل پیاده‌سازی شده است، اما این درگاه ورود صرفاً یک مکانیزم نمایشی مبتنی بر PIN مشترک (Demo Shared-PIN) است و جایگزین احراز هویت واقعی کاربر (SSO/OAuth2) نیست."
+    )
+    username = st.text_input("شناسه فضای کاری (Tenant Identifier):", value="legal_unit_1")
 
+    if not settings.APP_ACCESS_PIN:
+        st.error(
+            "متغیر محیطی `APP_ACCESS_PIN` تنظیم نشده است! لطفاً برای فعال‌سازی ورود، آن را در فایل `.env` مقداردهی کنید."
+        )
+        st.stop()
+
+    access_pin = st.text_input("توکن دسترسی محیط دمو (`APP_ACCESS_PIN`):", type="password")
     is_authenticated = (access_pin == settings.APP_ACCESS_PIN) and bool(username.strip())
     tenant_id = hashlib.sha256(username.strip().lower().encode("utf-8")).hexdigest()[:16] if username else "default"
 
     if not is_authenticated:
-        st.warning("لطفاً برای دسترسی به فضای کاری اختصاصی خود، رمز دسترسی سازمانی را وارد کنید.")
+        st.warning("برای دسترسی به فضای کاری ایزوله، توکن تعریف‌شده در `APP_ACCESS_PIN` را وارد نمایید.")
         st.stop()
     else:
-        st.success(f"فضای کاری ایزوله: `{username}`")
+        st.success(f"فضای کاری فعال: `{username}` (`{tenant_id[:8]}...`)")
 
     st.divider()
     st.markdown('<div class="section-header">📂 مدیریت مستندات کاربر</div>', unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
         f"بارگذاری قرارداد (PDF - سقف {settings.MAX_FILE_SIZE_MB}MB):",
         type=["pdf"],
-        accept_multiple_files=True
+        accept_multiple_files=True,
     )
 
     if st.button("🚀 پردازش و ایندکس در فضای کاری", use_container_width=True):
@@ -170,7 +178,7 @@ with st.sidebar:
                 try:
                     progress_bar.progress(
                         int((idx / len(uploaded_files)) * 100),
-                        text=f"تفکیک بندها و اسکن امنیتی `{uploaded_file.name}`..."
+                        text=f"تفکیک بندها و اسکن امنیتی `{uploaded_file.name}`...",
                     )
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                         while True:
@@ -181,16 +189,16 @@ with st.sidebar:
                         tmp_path = tmp.name
 
                     chunks = extract_chunks_from_pdf(tmp_path, source_name=uploaded_file.name)
-                    safe_chunks = security_guard.filter_and_sanitize_chunks(chunks)
+                    safe_chunks = SecurityGuard.filter_and_sanitize_chunks(chunks)
                     inserted = db_service.insert_chunks(
                         safe_chunks,
                         tenant_id=tenant_id,
                         clear_existing=True,
-                        batch_size=32
+                        batch_size=32,
                     )
                     total_indexed += inserted
-                except Exception as e:
-                    st.error(f"خطا در پردازش `{uploaded_file.name}`: {str(e)}")
+                except Exception:
+                    st.error(f"خطا در پردازش فایل `{uploaded_file.name}`. لطفاً سلامت فایل PDF را بررسی کنید.")
                 finally:
                     if tmp_path and os.path.exists(tmp_path):
                         try:
@@ -207,27 +215,25 @@ with st.sidebar:
     tenant_docs = db_service.list_tenant_documents(tenant_id=tenant_id)
     selected_doc_filter = st.selectbox(
         "فیلتر اسناد مجاز شما:",
-        options=["همه اسناد مجاز"] + tenant_docs
+        options=["همه اسناد مجاز"] + tenant_docs,
     )
 
-    st.divider()
-    st.markdown("#### ⚙️ مشخصات فنی خط لوله")
-    st.markdown(f"""
-    - **LLM Provider:** `{settings.LLM_PROVIDER}` (`{settings.LLM_MODEL}`)
-    - **Context Window (`num_ctx`):** `{settings.LLM_NUM_CTX}`
-    - **Vector Store:** Qdrant (Tenant-Isolated)
-    - **Retrieval:** Hybrid (Dense + Lexical RRF)
-    """)
-
-tab_qa, tab_bench = st.tabs(["🔍 پرسش‌وپاسخ مستند از قراردادها", "🧪 بنچمارک طلایی (Golden Benchmark)"])
+tab_qa, tab_bench = st.tabs([
+    "🔍 پرسش‌وپاسخ مستند از قراردادها",
+    "🧪 اجرای زنده بنچمارک طلایی (11-Case Suite)",
+])
 
 with tab_qa:
     query = st.text_input(
         "پرسش حقوقی یا مالی خود را وارد کنید:",
-        placeholder="مثلاً: شرایط جریمه تاخیر در تحویل چقدر است؟"
+        placeholder="مثلاً: شرایط جریمه تاخیر در تحویل چقدر است؟",
     )
 
     if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width=True) and query:
+        if SecurityGuard.detect_prompt_injection(query):
+            st.error("⛔ هشدار امنیتی: الگوی تزریق دستور (Prompt Injection) در پرسش ورودی شناسایی و مسدود شد.")
+            st.stop()
+
         total_start = time.perf_counter()
 
         with st.spinner("در حال بازیابی مستندات اختصاصی و استنتاج مدل..."):
@@ -236,7 +242,7 @@ with tab_qa:
                 query,
                 top_k=3,
                 tenant_id=tenant_id,
-                source_filter=selected_doc_filter
+                source_filter=selected_doc_filter,
             )
             ret_ms = round((time.perf_counter() - t_ret) * 1000, 1)
 
@@ -253,7 +259,6 @@ with tab_qa:
 
         with col_ans:
             st.markdown('<div class="section-header">💡 پاسخ مستند سیستم:</div>', unsafe_allow_html=True)
-            # اولویت امنیتی: ابتدا کل متن با html.escape ایمن می‌شود و سپس \n به <br> تبدیل می‌گردد
             safe_escaped_answer = html.escape(answer).replace("\n", "<br>")
             st.markdown(f'<div class="glass-answer">{safe_escaped_answer}</div>', unsafe_allow_html=True)
 
@@ -275,7 +280,7 @@ with tab_qa:
                     clause_id = meta.get("clause_id", "ثبت‌نشده")
                     text_content = c.get("content", "")
 
-                    with st.expander(f"مستند {idx+1}: {clean_name} — صفحه {page_num}"):
+                    with st.expander(f"مستند {idx + 1}: {clean_name} — صفحه {page_num}"):
                         st.write(text_content)
                         st.caption(f"شناسه بند: `{clause_id}` | امتیاز بازچینی: `{score:.4f}`")
             else:
@@ -284,7 +289,7 @@ with tab_qa:
         st.markdown("---")
         st.markdown(
             '<div class="section-header">📊 داشبورد شاخص‌های اکتشافی (Heuristic Proxy Indicators)</div>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -332,12 +337,43 @@ with tab_qa:
             """, unsafe_allow_html=True)
 
 with tab_bench:
-    st.markdown("### 🧪 مجموعه بنچمارک دستی طلایی (Golden Benchmark Suite)")
+    st.markdown("### 🧪 اجرای عملیاتی مجموعه بنچمارک طلایی (11-Case Multi-Scenario Suite)")
     st.caption(
-        "این جدول شامل سناریوهای استاندارد مرجع با پرسش، کانتکست صحیح، کلیدواژه‌های پاسخ مورد انتظار و استناد قطعی برای ارزیابی واقعی سامانه است."
+        "این مجموعه شامل سناریوهای فارسی، انگلیسی، استخراج عددی، چندبندی، چندصفحه‌ای، تضاد الحاقیه، خارج از موضوع و تست دفاع در برابر Prompt Injection است."
     )
-    for case in RagEvaluator.GOLDEN_BENCHMARK:
-        with st.expander(f"📌 {case['id']} — {case['query']}"):
-            st.markdown(f"**متن مرجع (Ground Truth Context):**\n> {case['ground_truth_context']['content']}")
-            st.markdown(f"**کلیدواژه‌های الزامی در پاسخ:** `{', '.join(case['expected_answer_keywords'])}`")
-            st.json(case["expected_citation"])
+
+    if st.button("▶️ اجرای زنده بنچمارک End-to-End و تولید گزارش", use_container_width=True):
+        with st.spinner("در حال اجرای ۱۱ سناریوی مرجع روی Qdrant و LLM..."):
+            report = RagEvaluator.run_golden_benchmark_suite(
+                db_service=db_service,
+                retriever=retriever,
+                generator_fn=generate_structured_answer,
+                use_live_retrieval=True,
+            )
+
+        b1, b2, b3, b4, b5 = st.columns(5)
+        b1.metric("نرخ قبولی (Pass Rate)", f"{int(report['pass_rate'] * 100)}%", f"{report['passed_cases']}/{report['total_cases']}")
+        b2.metric("میانگین Keyword Recall", f"{int(report['avg_keyword_recall'] * 100)}%")
+        b3.metric("دقت استناد (Citation)", f"{int(report['avg_citation_accuracy'] * 100)}%")
+        b4.metric("میانگین Retrieval", f"{report['avg_retrieval_ms']} ms")
+        b5.metric("میانگین Generation", f"{report['avg_generation_ms']} ms")
+
+        st.download_button(
+            label="📥 دانلود گزارش کامل بنچمارک (JSON)",
+            data=json.dumps(report, ensure_ascii=False, indent=2),
+            file_name="golden_benchmark_report.json",
+            mime="application/json",
+        )
+
+        st.markdown("#### 📋 جزئیات نتایج هر سناریو:")
+        for res in report["results"]:
+            status_icon = "✅ PASSED" if res["passed"] else "❌ FAILED"
+            with st.expander(f"{status_icon} | [{res['category']}] {res['case_id']} — {res['query']}"):
+                st.markdown(f"**پاسخ تولیدشده:**\n> {res['generated_answer']}")
+                st.write({
+                    "keyword_recall": res["keyword_recall"],
+                    "citation_accuracy": res["citation_accuracy"],
+                    "retrieval_ms": res["retrieval_ms"],
+                    "generation_ms": res["generation_ms"],
+                    "passed": res["passed"],
+                })

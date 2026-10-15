@@ -1,82 +1,102 @@
 import re
 from typing import List, Dict, Any
-from src.logger import logger
+
 
 class SecurityGuard:
-    """لایه دفاعی پیشرفته برای مقابله با Prompt Injection و پاکسازی اطلاعات حساس (PII)"""
-    
-    def __init__(self):
-        # الگوهای جامع‌تر و ساختاری برای شناسایی تلاش‌های پرامپت اینجکشن (انگلیسی و فارسی)
-        self.injection_patterns = [
-            r"ignore previous instructions",
-            r"ignore all prior instructions",
-            r"disregard previous rules",
-            r"you are now a",
-            r"system override",
-            r"reveal system prompt",
-            r"دستورات قبلی را نادیده",
-            r"فراموش کن",
-            r"تو از این به بعد",
-            r"حالا تو نقش",
-            r"پرامپت سیستم را نشان بده"
-        ]
-        
-        # الگوهای ماسک‌سازی PII (کد ملی، شماره تماس، ایمیل)
-        self.pii_patterns = {
-            "email": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-            "phone": r"(\+98|0)?9\d{9}",
-            "national_id": r"\b\d{10}\b"
-        }
+    """
+    لایه دفاعی برای مقابله با Prompt Injection، پاکسازی اطلاعات حساس (PII)
+    و ایمن‌سازی لاگ‌های سیستمی (پشتیبانی از فراخوانی مستقیم کلاس و نمونه).
+    """
 
-    def detect_prompt_injection(self, text: str) -> bool:
-        """بررسی وجود الگوهای مخرب پرامپت اینجکشن در متن"""
+    INJECTION_PATTERNS = [
+        r"ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions",
+        r"disregard\s+(?:all\s+)?(?:previous|prior)\s+rules",
+        r"you\s+are\s+now\s+a",
+        r"system\s+override",
+        r"reveal\s+(?:the\s+)?system\s+prompt",
+        r"developer\s+mode",
+        r"دستورات\s+قبلی\s+را\s+نادیده",
+        r"قوانین\s+قبلی\s+را\s+فراموش",
+        r"تو\s+از\s+این\s+به\s+بعد",
+        r"حالا\s+تو\s+نقش",
+        r"پرامپت\s+سیستم\s+را\s+نشان\s+بده",
+    ]
+
+    PII_PATTERNS = {
+        "email": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+        "phone": r"(?:\+98|0098|0)?9\d{9}\b",
+        "national_id": r"\b\d{10}\b",
+        "api_key": r"\b(?:sk-[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9\-\._~\+\/]+=*)\b",
+    }
+
+    @classmethod
+    def detect_prompt_injection(cls, text: str) -> bool:
+        """بررسی وجود الگوهای مخرب پرامپت اینجکشن در متن (با نرمال‌سازی فاصله‌ها و نیم‌فاصله)"""
         if not text:
             return False
-        
-        text_lower = text.lower()
-        for pattern in self.injection_patterns:
-            if re.search(pattern, text_lower):
-                logger.warning(f"Security Alert: Malicious prompt injection pattern detected: '{pattern}'")
+
+        normalized = text.replace("\u200c", " ").replace("ي", "ی").replace("ك", "ک").lower()
+        normalized = re.sub(r"\s+", " ", normalized)
+
+        for pattern in cls.INJECTION_PATTERNS:
+            if re.search(pattern, normalized, re.IGNORECASE):
                 return True
         return False
 
-    def sanitize_text(self, text: str) -> str:
-        """ماسک کردن اطلاعات شخصی (PII) در متن"""
+    @classmethod
+    def sanitize_text(cls, text: str) -> str:
+        """ماسک کردن اطلاعات شخصی (PII) و کلیدهای حساس در متن و لاگ‌ها"""
         if not text:
-            return text
-            
-        sanitized = text
-        for pii_type, pattern in self.pii_patterns.items():
-            if pii_type == "email":
-                sanitized = re.sub(pattern, "[REDACTED_EMAIL]", sanitized)
-            elif pii_type == "phone":
-                sanitized = re.sub(pattern, "[REDACTED_PHONE]", sanitized)
-            elif pii_type == "national_id":
-                sanitized = re.sub(pattern, "[REDACTED_NATIONAL_ID]", sanitized)
-                
+            return ""
+
+        sanitized = str(text)
+        sanitized = re.sub(cls.PII_PATTERNS["email"], "[REDACTED_EMAIL]", sanitized)
+        sanitized = re.sub(cls.PII_PATTERNS["phone"], "[REDACTED_PHONE]", sanitized)
+        sanitized = re.sub(cls.PII_PATTERNS["national_id"], "[REDACTED_NATIONAL_ID]", sanitized)
+        sanitized = re.sub(cls.PII_PATTERNS["api_key"], "[REDACTED_SECRET]", sanitized)
         return sanitized
 
-    def filter_and_sanitize_chunks(self, chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """فیلتر کردن چانک‌های آلوده به پرامپت اینجکشن و پاکسازی PII از چانک‌های امن"""
+    @classmethod
+    def secure_log_payload(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """پاکسازی دیکشنری extra_fields در لاگ‌ها جهت جلوگیری از نشت اطلاعات حساس"""
+        if not isinstance(data, dict):
+            return {}
+
+        secured = dict(data)
+        sensitive_keys = ("query", "text", "content", "message", "error", "response", "prompt")
+
+        for key, val in secured.items():
+            if key in sensitive_keys and val is not None:
+                secured[key] = cls.sanitize_text(str(val))
+            elif isinstance(val, dict):
+                secured[key] = cls.secure_log_payload(val)
+
+        return secured
+
+    @classmethod
+    def sanitize_http_error(cls, raw_body: str, max_len: int = 200) -> str:
+        """برش (Truncate) و ماسک‌سازی بدنه خطای HTTP جهت جلوگیری از ثبت اطلاعات حساس در لاگ"""
+        if not raw_body:
+            return "empty_error_body"
+        clean = cls.sanitize_text(str(raw_body)).replace("\n", " ").strip()
+        if len(clean) > max_len:
+            return clean[:max_len] + "...[TRUNCATED]"
+        return clean
+
+    @classmethod
+    def filter_and_sanitize_chunks(cls, chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """حذف چانک‌های آلوده به پرامپت اینجکشن (Zero-Tolerance) و پاکسازی PII از چانک‌های سالم"""
         safe_chunks = []
-        dropped_count = 0
-
         for chunk in chunks:
-            content = chunk.get("content", "")
-            
-            # اگر پرامپت اینجکشن شناسایی شد، کل چانک حذف می‌شود (Zero-Tolerance Policy)
-            if self.detect_prompt_injection(content):
-                dropped_count += 1
-                logger.error("Security Action: Dropped a malicious chunk due to prompt injection attempt.")
+            content = chunk.get("content") or chunk.get("text", "")
+            if cls.detect_prompt_injection(content):
                 continue
-            
-            # در غیر این صورت، متن پاکسازی (Sanitize) می‌شود
-            chunk["content"] = self.sanitize_text(content)
-            safe_chunks.append(chunk)
 
-        if dropped_count > 0:
-            logger.warning(f"Security Summary: Dropped {dropped_count} malicious chunks during ingestion.")
+            updated_chunk = dict(chunk)
+            updated_chunk["content"] = cls.sanitize_text(content)
+            safe_chunks.append(updated_chunk)
 
         return safe_chunks
+
 
 security_guard = SecurityGuard()

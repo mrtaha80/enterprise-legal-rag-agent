@@ -1,4 +1,3 @@
-import os
 import uuid
 import hashlib
 from typing import List, Dict, Any, Optional
@@ -6,17 +5,17 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from sentence_transformers import SentenceTransformer
 from src.config import settings
-from src.parser import extract_chunks_from_pdf
 from src.logger import logger
 
 
 class VectorStoreManager:
-    """مدیریت یکپارچه و چندکاربره (Multi-Tenant) پایگاه داده برداری Qdrant"""
+    """مدیریت یکپارچه و چندکاربره (Multi-Tenant) پایگاه داده برداری Qdrant با پشتیبانی از E5 Prefix و Pagination کامل"""
 
     def __init__(self):
         self.client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         self.encoder = SentenceTransformer(settings.EMBEDDING_MODEL)
         self.collection_name = settings.COLLECTION_NAME
+        self.use_e5_prefix = settings.USE_E5_PREFIX and ("e5" in settings.EMBEDDING_MODEL.lower())
         self.vector_size = self.encoder.get_sentence_embedding_dimension() or 768
         self._ensure_collection()
 
@@ -28,23 +27,37 @@ class VectorStoreManager:
                     collection_name=self.collection_name,
                     vectors_config=models.VectorParams(
                         size=self.vector_size,
-                        distance=models.Distance.COSINE
-                    )
+                        distance=models.Distance.COSINE,
+                    ),
                 )
                 logger.info(f"Collection '{self.collection_name}' created (dim={self.vector_size}).")
 
             self.client.create_payload_index(
                 collection_name=self.collection_name,
                 field_name="source",
-                field_schema=models.PayloadSchemaType.KEYWORD
+                field_schema=models.PayloadSchemaType.KEYWORD,
             )
             self.client.create_payload_index(
                 collection_name=self.collection_name,
                 field_name="tenant_id",
-                field_schema=models.PayloadSchemaType.KEYWORD
+                field_schema=models.PayloadSchemaType.KEYWORD,
             )
         except Exception as e:
             logger.error(f"Error ensuring Qdrant collection: {str(e)}")
+
+    def _format_passage(self, text: str) -> str:
+        """افزودن پیشوند استاندارد passage: برای خانواده مدل‌های E5"""
+        clean = text.strip()
+        if self.use_e5_prefix and not clean.lower().startswith("passage:"):
+            return f"passage: {clean}"
+        return clean
+
+    def _format_query(self, query: str) -> str:
+        """افزودن پیشوند استاندارد query: برای خانواده مدل‌های E5"""
+        clean = query.strip()
+        if self.use_e5_prefix and not clean.lower().startswith("query:"):
+            return f"query: {clean}"
+        return clean
 
     @staticmethod
     def _generate_deterministic_id(tenant_id: str, source: str, clause_id: str, content: str) -> str:
@@ -63,15 +76,15 @@ class VectorStoreManager:
                         must=[
                             models.FieldCondition(
                                 key="source",
-                                match=models.MatchValue(value=source_filename)
+                                match=models.MatchValue(value=source_filename),
                             ),
                             models.FieldCondition(
                                 key="tenant_id",
-                                match=models.MatchValue(value=tenant_id)
-                            )
+                                match=models.MatchValue(value=tenant_id),
+                            ),
                         ]
                     )
-                )
+                ),
             )
             logger.info(f"Deleted document '{source_filename}' for tenant '{tenant_id}'.")
             return True
@@ -84,9 +97,9 @@ class VectorStoreManager:
         chunks: List[Dict[str, Any]],
         tenant_id: str = "default",
         clear_existing: bool = True,
-        batch_size: int = 32
+        batch_size: int = 32,
     ) -> int:
-        """درج دسته‌ای چانک‌ها؛ در صورت فعال بودن clear_existing فقط نسخه قبلی همان سندِ همان کاربر پاک می‌شود"""
+        """درج دسته‌ای چانک‌ها با پیشوند E5 و جایگزینی ایمن اسناد تکراری همان کاربر"""
         try:
             if not chunks:
                 return 0
@@ -101,19 +114,20 @@ class VectorStoreManager:
 
             total_inserted = 0
             for i in range(0, len(chunks), batch_size):
-                batch = chunks[i:i + batch_size]
-                texts = [c.get("content") or c.get("text", "") for c in batch]
+                batch = chunks[i : i + batch_size]
+                raw_texts = [c.get("content") or c.get("text", "") for c in batch]
+                encoded_passages = [self._format_passage(t) for t in raw_texts]
+
                 embeddings = self.encoder.encode(
-                    texts,
+                    encoded_passages,
                     batch_size=batch_size,
                     normalize_embeddings=True,
-                    show_progress_bar=False
+                    show_progress_bar=False,
                 ).tolist()
 
                 points = []
-                for chunk, emb in zip(batch, embeddings):
+                for chunk, content, emb in zip(batch, raw_texts, embeddings):
                     metadata = chunk.get("metadata", {})
-                    content = chunk.get("content") or chunk.get("text", "")
                     source = metadata.get("source") or chunk.get("source", "unknown.pdf")
                     page = metadata.get("page") or chunk.get("page", 1)
                     clause_id = metadata.get("clause_id") or chunk.get("clause_id", "general")
@@ -122,7 +136,7 @@ class VectorStoreManager:
                         tenant_id=tenant_id,
                         source=source,
                         clause_id=clause_id,
-                        content=content
+                        content=content,
                     )
 
                     payload = {
@@ -130,7 +144,7 @@ class VectorStoreManager:
                         "source": source,
                         "page": page,
                         "clause_id": clause_id,
-                        "tenant_id": tenant_id
+                        "tenant_id": tenant_id,
                     }
                     points.append(models.PointStruct(id=point_id, vector=emb, payload=payload))
 
@@ -148,22 +162,24 @@ class VectorStoreManager:
         query: str,
         top_k: int = 3,
         tenant_id: str = "default",
-        source_filter: Optional[str] = None
+        source_filter: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """جستجوی برداری (Dense) با اعمال فیلتر ایزوله‌سازی کاربر (Tenant ACL)"""
+        """جستجوی برداری (Dense) با پیشوند query: برای مدل E5 و فیلتر Tenant ACL"""
         try:
-            query_vector = self.encoder.encode(query, normalize_embeddings=True).tolist()
+            formatted_query = self._format_query(query)
+            query_vector = self.encoder.encode(formatted_query, normalize_embeddings=True).tolist()
+
             must_conditions = [
                 models.FieldCondition(
                     key="tenant_id",
-                    match=models.MatchValue(value=tenant_id)
+                    match=models.MatchValue(value=tenant_id),
                 )
             ]
             if source_filter and source_filter != "همه اسناد مجاز":
                 must_conditions.append(
                     models.FieldCondition(
                         key="source",
-                        match=models.MatchValue(value=source_filter)
+                        match=models.MatchValue(value=source_filter),
                     )
                 )
 
@@ -171,7 +187,7 @@ class VectorStoreManager:
                 collection_name=self.collection_name,
                 query_vector=query_vector,
                 query_filter=models.Filter(must=must_conditions),
-                limit=top_k
+                limit=top_k,
             )
 
             results = []
@@ -186,10 +202,10 @@ class VectorStoreManager:
                         "source": payload.get("source", "unknown.pdf"),
                         "page": payload.get("page", 1),
                         "clause_id": payload.get("clause_id", "N/A"),
-                        "tenant_id": payload.get("tenant_id", tenant_id)
+                        "tenant_id": payload.get("tenant_id", tenant_id),
                     },
                     "score": hit.score,
-                    "dense_score": hit.score
+                    "dense_score": hit.score,
                 })
             return results
         except Exception as e:
@@ -200,58 +216,74 @@ class VectorStoreManager:
         self,
         tenant_id: str = "default",
         source_filter: Optional[str] = None,
-        limit: int = 100
+        page_size: int = 250,
+        max_records: int = 5000,
     ) -> List[Dict[str, Any]]:
-        """واکشی رکوردهای مجاز یک کاربر برای بخش جستجوی واژگانی (Lexical Search)"""
+        """
+        واکشی کامل رکوردهای مجاز یک کاربر با پشتیبانی از Pagination واقعی (next_page_offset)
+        جهت اطمینان از اینکه اسناد بزرگ بیش از ۱۰۰ چانک از جستجوی واژگانی جا نمی‌مانند.
+        """
         try:
             must_conditions = [
                 models.FieldCondition(
                     key="tenant_id",
-                    match=models.MatchValue(value=tenant_id)
+                    match=models.MatchValue(value=tenant_id),
                 )
             ]
             if source_filter and source_filter != "همه اسناد مجاز":
                 must_conditions.append(
                     models.FieldCondition(
                         key="source",
-                        match=models.MatchValue(value=source_filter)
+                        match=models.MatchValue(value=source_filter),
                     )
                 )
 
-            records, _ = self.client.scroll(
-                collection_name=self.collection_name,
-                scroll_filter=models.Filter(must=must_conditions),
-                limit=limit,
-                with_payload=True,
-                with_vectors=False
-            )
+            scroll_filter = models.Filter(must=must_conditions)
+            output: List[Dict[str, Any]] = []
+            next_offset = None
 
-            output = []
-            for r in records:
-                payload = r.payload or {}
-                output.append({
-                    "content": payload.get("content", ""),
-                    "text": payload.get("content", ""),
-                    "source": payload.get("source", "unknown.pdf"),
-                    "page": payload.get("page", 1),
-                    "metadata": {
+            while len(output) < max_records:
+                batch_limit = min(page_size, max_records - len(output))
+                records, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=scroll_filter,
+                    limit=batch_limit,
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+
+                if not records:
+                    break
+
+                for r in records:
+                    payload = r.payload or {}
+                    output.append({
+                        "content": payload.get("content", ""),
+                        "text": payload.get("content", ""),
                         "source": payload.get("source", "unknown.pdf"),
                         "page": payload.get("page", 1),
-                        "clause_id": payload.get("clause_id", "N/A"),
-                        "tenant_id": payload.get("tenant_id", tenant_id)
-                    }
-                })
+                        "metadata": {
+                            "source": payload.get("source", "unknown.pdf"),
+                            "page": payload.get("page", 1),
+                            "clause_id": payload.get("clause_id", "N/A"),
+                            "tenant_id": payload.get("tenant_id", tenant_id),
+                        },
+                    })
+
+                if next_offset is None:
+                    break
+
             return output
         except Exception as e:
-            logger.error(f"Scroll records failed: {str(e)}")
+            logger.error(f"Scroll records pagination failed: {str(e)}")
             return []
 
     def list_tenant_documents(self, tenant_id: str = "default") -> List[str]:
-        """لیست کردن نام فایل‌های آپلودشده توسط یک کاربر مشخص"""
-        records = self.scroll_tenant_records(tenant_id=tenant_id, limit=250)
+        """لیست کردن تمام نام فایل‌های آپلودشده توسط یک کاربر مشخص با پیمایش کامل صفحات"""
+        records = self.scroll_tenant_records(tenant_id=tenant_id, page_size=250, max_records=5000)
         sources = {r["source"] for r in records if r.get("source")}
         return sorted(list(sources))
 
 
-# تعریف نام‌های یکسان برای سازگاری کامل با تمامی فایل‌ها و تست‌ها
 VectorDBService = VectorStoreManager
