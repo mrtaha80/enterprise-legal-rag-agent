@@ -66,7 +66,20 @@
 
 ---
 
-## 🚀 راهنمای نصب و اجرا
+## 💡 Example Usage: Query to Grounded Legal Answer
+
+| Phase                      | Output / Component                                                                                              |
+| :------------------------- | :-------------------------------------------------------------------------------------------------------------- |
+| **User Query**       | "شرایط فسخ قرارداد اجاره به دلیل عدم پرداخت اجاره‌بها چیست؟"   |
+| **Hybrid Retrieval** | `commercial_lease_agreement_1402.pdf` (Page 4, Clause 12-3)                                                   |
+| **Grounded Answer**  | موجر پس از ۱۵ روز تاخیر و ارسال اخطار کتبی ۱۰ روزه حق فسخ دارد. |
+| **Evaluation**       | Faithfulness: 0.98 \| Context Relevance: 0.94                                                                   |
+
+
+
+
+
+🚀 راهنمای نصب و اجرا
 
 ### ۱. راه‌اندازی پایگاه داده برداری Qdrant
 
