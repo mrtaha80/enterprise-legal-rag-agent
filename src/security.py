@@ -2,8 +2,30 @@ import re
 from typing import Dict, Any
 
 class SecurityGuard:
-    """ماژول امنیت، ماسک‌سازی اطلاعات هویتی و مالی (PII) و پاکسازی لاگ‌ها"""
+    """ماژول امنیت، ماسک‌سازی اطلاعات هویتی و مالی (PII) و دفاع در برابر Prompt Injection"""
     
+    # الگوهای رایج حملات Prompt Injection داخل اسناد یا ورودی‌ها
+    INJECTION_PATTERNS = [
+        r"ignore\s+(previous|all)\s+instructions",
+        r"forget\s+(previous|all)\s+instructions",
+        r"system\s+override",
+        r"you\s+are\s+now\s+(free|unrestricted)",
+        r"act\s+as\s+an?\s+unrestricted",
+        r"پیرو\s+دستورات\s+قبلی\s+را\s+فراموش\s+کن",
+        r"دستورات\s+قبلی\s+را\s+نادیده\s+بگیر",
+        r"تو\s+دیگر\s+محدودیتی\s+نداری"
+    ]
+
+    @classmethod
+    def detect_prompt_injection(cls, text: str) -> bool:
+        if not text:
+            return False
+        clean_text = text.lower()
+        for pattern in cls.INJECTION_PATTERNS:
+            if re.search(pattern, clean_text, re.IGNORECASE):
+                return True
+        return False
+
     @staticmethod
     def sanitize_text(text: str) -> str:
         if not text:

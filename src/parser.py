@@ -1,19 +1,18 @@
 ﻿import re
 import pymupdf as fitz
 from typing import List, Dict
+from src.security import SecurityGuard
+from src.logger import logger
 
-# الگوهای ساختار اسناد حقوقی و قراردادی بدون استفاده از پرچم درون‌خطی
 CLAUSE_PATTERNS = [
     r"^(?:ماده|بند|تبصره|فصل|بخش)\s*[\d\u0660-\u0669\u06F0-\u06F9IVXLCDM]+[:\.\-–]",
     r"^(?:Article|Section|Clause)\s*[\dIVXLCDM]+[:\.\-–]",
     r"^\d+[\.\-–]\s+",
 ]
 
-# اعمال استاندارد پرچم‌های MULTILINE و IGNORECASE در کامپایلر پایتون
 COMBINED_PATTERN = re.compile("|".join(CLAUSE_PATTERNS), re.IGNORECASE | re.MULTILINE)
 
 def _split_into_clauses(text: str) -> List[str]:
-    """برش متن بر اساس شروع مواد و بندهای حقوقی"""
     splits = [m.start() for m in COMBINED_PATTERN.finditer(text)]
     if not splits:
         paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
@@ -35,7 +34,6 @@ def _split_into_clauses(text: str) -> List[str]:
     return clauses
 
 def _subdivide_long_clause(clause: str, max_chars: int = 1200, overlap: int = 150) -> List[str]:
-    """تقسیم بندهای بیش از حد طولانی با حفظ هم‌پوشانی پاراگرافی"""
     if len(clause) <= max_chars:
         return [clause]
 
@@ -73,6 +71,12 @@ def extract_chunks_from_pdf(file_path: str, source_name: str = None) -> List[Dic
         page_text = page.get_text("text").strip()
         if not page_text:
             continue
+
+        # دفاع امنیتی: بررسی تزریق پرامپت در سطح صفحه PDF
+        if SecurityGuard.detect_prompt_injection(page_text):
+            logger.warning(f"Potential Prompt Injection detected in file '{filename}' on page {page_num+1}!")
+            # می‌توانیم متن‌های مشکوک را خنثی یا برچسب‌گذاری کنیم
+            page_text = "[SECURITY WARNING: Potential malicious prompt injection neutralized in source]\n" + page_text
 
         raw_clauses = _split_into_clauses(page_text)
 
