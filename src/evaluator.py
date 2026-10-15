@@ -22,7 +22,6 @@ class RagEvaluator:
     def _normalize(cls, text: str) -> str:
         if not text:
             return ""
-        # حذف نیم‌فاصله، اعراب و یکدست‌سازی ی و ک
         text = text.replace("\u200c", " ").replace("ي", "ی").replace("ك", "ک")
         fa_to_en = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
         return text.translate(fa_to_en).lower()
@@ -73,7 +72,6 @@ class RagEvaluator:
         if not answer:
             return 0.0
 
-        # امتناع صحیح یعنی عدم توهم و پایبندی کامل (1.0)
         if cls.is_refusal(answer):
             return 1.0
 
@@ -101,7 +99,7 @@ class RagEvaluator:
         cr = cls.evaluate_context_relevance(query, contexts)
         faith = cls.evaluate_faithfulness(answer, contexts)
         return {
-            "context_relevance": cr,
-            "faithfulness": faith,
-            "overall_rag_score": round((cr + faith) / 2, 2)
+            "heuristic_context_relevance": cr,
+            "heuristic_faithfulness": faith,
+            "overall_heuristic_score": round((cr + faith) / 2, 2)
         }

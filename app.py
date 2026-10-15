@@ -2,12 +2,20 @@
 import tempfile
 import os
 import time
+import html
+import hashlib
 from pathlib import Path
 from src.parser import extract_chunks_from_pdf
 from src.vector_store import VectorDBService
 from src.retriever import HybridRetriever
 from src.generator import generate_answer
 from src.evaluator import RagEvaluator
+from src.security import security_guard
+
+# تنظیمات امنیتی و محدودیت حجم آپلود (۱۵ مگابایت به ازای هر فایل)
+MAX_FILE_SIZE_MB = 15
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+APP_ACCESS_PIN = os.getenv("APP_ACCESS_PIN", "1234")  # قابل تنظیم در فایل .env
 
 st.set_page_config(
     page_title="Enterprise Legal RAG System",
@@ -16,7 +24,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# استایل ایزوله با هدایت کاراکتری دقیق
 st.markdown("""
 <style>
     @import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
@@ -25,7 +32,6 @@ st.markdown("""
         font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* بنر اصلی با گرادیان سرمه‌ای تیره */
     .glass-banner {
         background: radial-gradient(100% 100% at 50% 0%, rgba(30, 58, 138, 0.3) 0%, rgba(15, 23, 42, 0.9) 100%);
         border: 1px solid rgba(59, 130, 246, 0.25);
@@ -47,7 +53,6 @@ st.markdown("""
         margin: 0;
     }
 
-    /* تیترهای بخش‌ها با تراز کاملاً راست */
     .section-header {
         font-size: 18px;
         font-weight: 700;
@@ -57,7 +62,6 @@ st.markdown("""
         text-align: right;
     }
 
-    /* کادر پاسخ سیستم */
     .glass-answer {
         background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
         border: 1px solid rgba(56, 189, 248, 0.25);
@@ -71,7 +75,6 @@ st.markdown("""
         text-align: right;
     }
 
-    /* کارت‌های متریک داشبورد پایین صفحه */
     .kpi-card {
         background: rgba(17, 24, 39, 0.85);
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -97,62 +100,117 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 @st.cache_resource
 def get_services():
     db = VectorDBService()
-    retriever = HybridRetriever(vector_db=db)
+    retriever = HybridRetriever(qdrant_client=db.client, encoder=db.encoder)
     return db, retriever
 
+
 db_service, retriever = get_services()
+
 # بنر اصلی
 st.markdown("""
 <div class="glass-banner">
     <h1>⚖️ سامانه سازمانی تحلیل و اعتبارسنجی قراردادها (Legal RAG)</h1>
-    <p>موتور استنتاج مبتنی بر تفکیک بندمحور (Clause-Aware) • رتبه‌بندی مجدد دو‌سطحی • پایش تاخیر و ارزیابی کمی RAG Triad</p>
+    <p>موتور استنتاج مبتنی بر تفکیک بندمحور • بازیابی ترکیبی واقعی (Hybrid RRF) • ایزوله‌سازی چندکاربره (Multi-Tenant ACL)</p>
 </div>
 """, unsafe_allow_html=True)
 
-# نوار سایدبار
+# نوار سایدبار: احراز هویت، مدیریت فضای کاری و اسناد
 with st.sidebar:
+    st.markdown('<div class="section-header">🔐 احراز هویت و فضای کاری</div>', unsafe_allow_html=True)
+    username = st.text_input("نام کاربری / واحد سازمانی:", value="legal_team_1")
+    access_pin = st.text_input("رمز دسترسی سازمانی:", type="password", placeholder="پیش‌فرض: 1234")
+
+    is_authenticated = (access_pin == APP_ACCESS_PIN) and bool(username.strip())
+    tenant_id = hashlib.sha256(username.strip().lower().encode("utf-8")).hexdigest()[:16] if username else "default"
+
+    if not is_authenticated:
+        st.warning("لطفاً برای دسترسی به اسناد و بارگذاری قرارداد، رمز دسترسی سازمانی را وارد کنید.")
+        st.stop()
+    else:
+        st.success(f"فضای کاری ایزوله فعال: `{username}`")
+
+    st.divider()
     st.markdown('<div class="section-header">📂 مدیریت مستندات</div>', unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
-        "بارگذاری فایل‌های قرارداد (PDF):",
+        f"بارگذاری قرارداد (PDF - حداکثر {MAX_FILE_SIZE_MB}MB):",
         type=["pdf"],
         accept_multiple_files=True
     )
-    
+
     if st.button("🚀 پردازش و ایندکس برداری", use_container_width=True):
         if uploaded_files:
-            all_new_chunks = []
             start_ingest = time.perf_counter()
-            with st.spinner("در حال تفکیک مواد قانونی و بردارسازی..."):
-                for uploaded_file in uploaded_files:
+            total_indexed_chunks = 0
+            progress_bar = st.progress(0, text="آماده‌سازی پردازش اسناد...")
+
+            for idx, uploaded_file in enumerate(uploaded_files):
+                # ۱. بررسی محدودیت حجم فایل برای جلوگیری از سرریز حافظه (OOM)
+                if uploaded_file.size > MAX_FILE_SIZE_BYTES:
+                    st.error(f"فایل `{uploaded_file.name}` بیش از حد مجاز ({MAX_FILE_SIZE_MB}MB) است و رد شد.")
+                    continue
+
+                tmp_path = None
+                try:
+                    progress_bar.progress(
+                        int((idx / len(uploaded_files)) * 100),
+                        text=f"در حال تفکیک و اسکن امنیتی `{uploaded_file.name}`..."
+                    )
+                    # نوشتن ایمن فایل روی دیسک به صورت تکه‌ای (Chunked Write)
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                        tmp.write(uploaded_file.read())
+                        while True:
+                            chunk_bytes = uploaded_file.read(8192)
+                            if not chunk_bytes:
+                                break
+                            tmp.write(chunk_bytes)
                         tmp_path = tmp.name
-                    
+
+                    # ۲. استخراج بندها و اعمال فیلتر امنیتی
                     chunks = extract_chunks_from_pdf(tmp_path, source_name=uploaded_file.name)
-                    all_new_chunks.extend(chunks)
-                    os.remove(tmp_path)
-                
-                # پاکسازی نسخه‌های تکراری قبلی و درج یکپارچه بندهای جدید
-                db_service.insert_chunks(all_new_chunks, clear_existing=True)
-            
+                    safe_chunks = security_guard.filter_and_sanitize_chunks(chunks)
+
+                    # ۳. درج دسته‌ای (Batch) با جایگزینی ایمن نسخه قبلی همان سند برای همین کاربر
+                    inserted = db_service.insert_chunks(
+                        safe_chunks,
+                        tenant_id=tenant_id,
+                        replace_existing_doc=True,
+                        batch_size=32
+                    )
+                    total_indexed_chunks += inserted
+
+                except Exception as e:
+                    st.error(f"خطا در پردازش `{uploaded_file.name}`: {str(e)}")
+                finally:
+                    # ۴. تضمین حذف فایل موقت در هر شرایطی (حتی هنگام بروز Exception)
+                    if tmp_path and os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except OSError:
+                            pass
+
+            progress_bar.progress(100, text="پردازش کامل شد!")
             elapsed = round((time.perf_counter() - start_ingest) * 1000, 1)
-            st.success(f"{len(all_new_chunks)} بند حقوقی یکتا در {elapsed} ms ذخیره شد.")
+            st.success(f"{total_indexed_chunks} بند امن در فضای کاری `{username}` طی {elapsed} ms ایندکس شد.")
         else:
             st.warning("ابتدا یک فایل PDF انتخاب کنید.")
-            
-    st.divider()
-    st.markdown("#### ⚙️ معماری خط لوله (Pipeline)")
-    st.markdown("""
-    - **Chunking:** Clause-Aware Regex
-    - **Vector Store:** Qdrant (Cosine)
-    - **Reranker:** Cross-Encoder
-    - **LLM Engine:** Llama 3.2
-    """)
 
-# فرم ورودی
+    # فیلتر دسترسی به اسناد موجود در فضای کاری کاربر
+    tenant_docs = db_service.list_tenant_documents(tenant_id=tenant_id)
+    selected_doc_filter = st.selectbox(
+        "محدودسازی جستجو به سند مشخص:",
+        options=["همه اسناد مجاز"] + tenant_docs
+    )
+
+    if selected_doc_filter != "همه اسناد مجاز":
+        if st.button("🗑️ حذف این سند از فضای کاری", use_container_width=True):
+            db_service.delete_document(source_filename=selected_doc_filter, tenant_id=tenant_id)
+            st.success(f"سند `{selected_doc_filter}` حذف شد.")
+            st.rerun()
+
+# فرم ورودی پرسش
 query = st.text_input(
     "پرسش حقوقی یا مالی خود را وارد کنید:",
     placeholder="مثلاً: شرایط جریمه تاخیر در تحویل چقدر است؟"
@@ -160,51 +218,62 @@ query = st.text_input(
 
 if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width=True) and query:
     total_start = time.perf_counter()
-    
-    with st.spinner("در حال بازیابی مستندات و استنتاج مدل..."):
-        # ۱. بازیابی و ریرنکینگ
+
+    with st.spinner("در حال بازیابی مستندات مجاز و استنتاج مدل..."):
         t_ret = time.perf_counter()
-        contexts = retriever.retrieve(query, top_k=3)
+        contexts = retriever.retrieve(
+            query,
+            top_k=3,
+            tenant_id=tenant_id,
+            source_filter=selected_doc_filter
+        )
         ret_ms = round((time.perf_counter() - t_ret) * 1000, 1)
 
-        # ۲. پاسخ‌دهی LLM
         t_gen = time.perf_counter()
         answer = generate_answer(query, contexts)
         gen_ms = round((time.perf_counter() - t_gen) * 1000, 1)
-        
-        # ۳. ارزیابی کیفی RAG Triad
+
         evaluation = RagEvaluator.evaluate_rag_triad(query=query, answer=answer, contexts=contexts)
         total_ms = round((time.perf_counter() - total_start) * 1000, 1)
 
     col_ans, col_chunks = st.columns([6, 4])
-    
+
     with col_ans:
         st.markdown('<div class="section-header">💡 پاسخ مستند سیستم:</div>', unsafe_allow_html=True)
-        formatted_answer = answer.replace("\n", "<br>")
-        st.markdown(f'<div class="glass-answer">{formatted_answer}</div>', unsafe_allow_html=True)
+        # ایمن‌سازی کامل در برابر حملات XSS پیش از تبدیل خطوط جدید
+        safe_escaped_answer = html.escape(answer).replace("\n", "<br>")
+        st.markdown(f'<div class="glass-answer">{safe_escaped_answer}</div>', unsafe_allow_html=True)
+
+        if contexts:
+            st.markdown("#### 📌 استنادهای رسمی و مستندات ارجاعی:")
+            for c in contexts:
+                meta = c.get("metadata", {})
+                src = Path(meta.get("source", "unknown")).name
+                page = meta.get("page", 1)
+                clause = meta.get("clause_id", "N/A")
+                st.markdown(f"- 📄 **سند:** `{src}` | **صفحه:** `{page}` | **شناسه بند:** `{clause}`")
 
     with col_chunks:
         st.markdown('<div class="section-header">📑 شواهد و بندهای مرتبط:</div>', unsafe_allow_html=True)
         if contexts:
             for idx, c in enumerate(contexts):
                 score = c.get("rerank_score", 0.0)
-                clean_name = Path(c["source"]).name
+                clean_name = Path(c["metadata"].get("source", "unknown")).name
+                page_num = c["metadata"].get("page", 1)
                 clause_id = c.get("metadata", {}).get("clause_id", "ثبت‌نشده")
-                text_content = c.get("text") or c.get("content") or ""
-                
-                with st.expander(f"مستند {idx+1}: {clean_name} — صفحه {c['page']}"):
+                text_content = c.get("content", "")
+
+                with st.expander(f"مستند {idx+1}: {clean_name} — صفحه {page_num}"):
                     st.write(text_content)
                     st.caption(f"شناسه بند: `{clause_id}` | امتیاز بازچینی: `{score:.4f}`")
         else:
-            st.warning("هیچ قطعه مرتبطی یافت نشد.")
+            st.warning("هیچ قطعه مرتبطی در فضای کاری شما یافت نشد.")
 
     st.markdown("---")
+    st.markdown('<div class="section-header">📊 داشبورد رصدپذیری و سنجش کیفیت (Heuristic Observability)</div>', unsafe_allow_html=True)
 
-    # داشبورد متریک‌ها
-    st.markdown('<div class="section-header">📊 داشبورد رصدپذیری و سنجش کیفیت (Observability & Evaluation)</div>', unsafe_allow_html=True)
-    
     c1, c2, c3, c4, c5 = st.columns(5)
-    
+
     with c1:
         st.markdown(f"""
         <div class="kpi-card">
@@ -212,7 +281,7 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
             <div class="kpi-val" style="color: #60a5fa;">{total_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
-        
+
     with c2:
         st.markdown(f"""
         <div class="kpi-card">
@@ -220,7 +289,7 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
             <div class="kpi-val" style="color: #fbbf24;">{ret_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
-        
+
     with c3:
         st.markdown(f"""
         <div class="kpi-card">
@@ -228,21 +297,23 @@ if st.button("🔍 جستجو و تحلیل قرارداد", use_container_width
             <div class="kpi-val" style="color: #c084fc;">{gen_ms} ms</div>
         </div>
         """, unsafe_allow_html=True)
-        
+
     with c4:
-        rel_percent = int(evaluation["context_relevance"] * 100)
+        rel_val = evaluation.get("heuristic_context_relevance", evaluation.get("context_relevance", 0.0))
+        rel_percent = int(rel_val * 100)
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-title">ارتباط شواهد</div>
+            <div class="kpi-title">ارتباط شواهد (Heuristic)</div>
             <div class="kpi-val" style="color: #34d399;">{rel_percent}%</div>
         </div>
         """, unsafe_allow_html=True)
-        
+
     with c5:
-        faith_percent = int(evaluation["faithfulness"] * 100)
+        faith_val = evaluation.get("heuristic_faithfulness", evaluation.get("faithfulness", 0.0))
+        faith_percent = int(faith_val * 100)
         st.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-title">وفاداری به متن</div>
+            <div class="kpi-title">وفاداری به متن (Heuristic)</div>
             <div class="kpi-val" style="color: #4ade80;">{faith_percent}%</div>
         </div>
         """, unsafe_allow_html=True)
