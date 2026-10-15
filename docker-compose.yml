@@ -1,4 +1,4 @@
-﻿services:
+services:
   qdrant:
     image: qdrant/qdrant:latest
     container_name: legal_rag_qdrant
@@ -22,8 +22,11 @@
     restart: unless-stopped
     ports:
       - "11434:11434"
+    environment:
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_KEEP_ALIVE=5m
     volumes:
-      - ollama_models:/root/.ollama
+      - "/mnt/c/Users/Taha tk/.ollama/models:/root/.ollama/models"
     networks:
       - legal_rag_net
 
@@ -35,12 +38,24 @@
     restart: unless-stopped
     ports:
       - "8501:8501"
+    volumes:
+      - .:/app
+      - "/mnt/c/Users/Taha tk/.cache/huggingface:/root/.cache/huggingface"
+      - /app/venv
+      - /app/__pycache__
+      - /app/data
+      - /app/evaluation
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - COLLECTION_NAME=legal_contracts
       - OLLAMA_URL=http://ollama:11434/api/generate
       - LLM_MODEL=llama3.2
+      - STREAMLIT_SERVER_FILE_WATCHER_TYPE=poll
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
     depends_on:
       - qdrant
       - ollama
@@ -53,6 +68,4 @@ networks:
 
 volumes:
   qdrant_data:
-    driver: local
-  ollama_models:
     driver: local

@@ -18,9 +18,12 @@ class VectorDBService:
         )
         self.collection_name = settings.COLLECTION_NAME
         
-        # بارگذاری مدل و استخراج خودکار طول بردار
+        # بارگذاری مدل و استخراج خودکار طول بردار با متد جدید (بدون اخطار FutureWarning)
         self.embed_model = SentenceTransformer(settings.EMBEDDING_MODEL)
-        self.vector_dim = self.embed_model.get_sentence_embedding_dimension()
+        if hasattr(self.embed_model, "get_embedding_dimension"):
+            self.vector_dim = self.embed_model.get_embedding_dimension()
+        else:
+            self.vector_dim = self.embed_model.get_sentence_embedding_dimension()
         
         self._ensure_collection_exists()
 

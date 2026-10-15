@@ -1,30 +1,40 @@
 ﻿import os
 import requests
-from src.logger import pipeline_logger
+from src.logger import pipeline_logger, logger
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434/api/generate")
 MODEL_NAME = os.getenv("LLM_MODEL", "llama3.2")
 
 def generate_answer(query: str, contexts: list) -> str:
-    combined_context = "\n\n".join([
-        f"Document [{c.get('source', '')} - Page {c.get('page', '')}]:\n{c.get('text', '')}"
-        for c in contexts
-    ])
-    
-    prompt = f"""You are an enterprise legal reasoning AI assistant. Answer the question accurately using the provided context below.
-Notice: The context may be in English and the user query in Persian. Map key legal/financial terms semantically (e.g., penalty/delay = جریمه/تاخیر, contract value/payment = مبلغ قرارداد/پرداخت).
+    if not contexts:
+        return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
 
-Rules:
-1. If the information exists in the context, answer concisely and cite the document name and page number.
-2. If and ONLY if the information is truly not mentioned in the context, explicitly reply: "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
+    # خلاصه‌سازی و آماده‌سازی متن چانک‌ها جهت کاهش حجم توکن ورودی
+    context_blocks = []
+    for idx, c in enumerate(contexts, 1):
+        text = (c.get("text") or c.get("content") or "").strip()
+        source = c.get("source", "مستند")
+        page = c.get("page", 1)
+        context_blocks.append(f"[{idx}] سند: {source} (صفحه {page}):\n{text}")
 
-Context:
+    combined_context = "\n\n".join(context_blocks)
+
+    system_instruction = (
+        "شما یک دستیار هوشمند استخراج و تحلیل حقوقی قراردادها هستید. "
+        "با تکیه دقیق بر متن مستندات زیر، به سوال کاربر به زبان فارسی پاسخ شفاف و دقیق دهید. "
+        "در صورتی که پاسخ شامل ارقام مالی، مبالغ جریمه، مهلت‌ها یا مواعد تحویل است، آن را دقیق ذکر کنید و شماره سند یا صفحه را ارجاع دهید. "
+        "تنها در صورتی که واقعاً هیچ اطلاعاتی در متن وجود ندارد بگویید: در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
+    )
+
+    prompt = f"""{system_instruction}
+
+متن مستندات قرارداد:
 {combined_context}
 
-Question:
+پرسش کاربر:
 {query}
 
-Answer:"""
+پاسخ حقوقی مستند:"""
 
     try:
         with pipeline_logger.track_latency("llm_generation", query=query):
@@ -36,14 +46,20 @@ Answer:"""
                     "stream": False,
                     "options": {
                         "temperature": 0.1,
-                        "num_predict": 180
+                        "num_predict": 250,
+                        "num_ctx": 3072
                     }
                 },
-                timeout=35
+                timeout=120  # مهلت کافی برای اجرای پاسخ روی پردازنده
             )
             if response.status_code == 200:
                 data = response.json()
-                return data.get("response", "").strip()
+                ans = data.get("response", "").strip()
+                return ans if ans else "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
+            
+            logger.error(f"Ollama returned status code: {response.status_code}")
             return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
-    except Exception:
+
+    except Exception as e:
+        logger.error(f"Error during LLM generation: {str(e)}")
         return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."

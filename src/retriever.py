@@ -8,7 +8,7 @@ class HybridRetriever:
         self.vector_db = VectorDBService()
         self.reranker = CrossEncoder(settings.RERANKER_MODEL)
 
-    def retrieve(self, query: str, top_k: int = 3, candidate_limit: int = 10) -> list[dict]:
+    def retrieve(self, query: str, top_k: int = 3, candidate_limit: int = 5) -> list[dict]:
         # ۱. ردگیری زمان جستجوی برداری در پایگاه داده Qdrant
         with trace_latency("vector_search", query=query):
             candidates = self.vector_db.search(query=query, limit=candidate_limit)
@@ -34,5 +34,4 @@ class HybridRetriever:
 
         return reranked[:top_k]
 
-# آلیاس جهت حفظ سازگاری
 Retriever = HybridRetriever
