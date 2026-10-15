@@ -1,26 +1,35 @@
-import os
 from typing import List, Dict, Any, Optional
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from qdrant_client import QdrantClient
-from qdrant_client.http import models
+from src.config import settings
+from src.vector_store import VectorDBService
 from src.logger import logger
-
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "legal_contracts")
-RERANKER_MODEL_NAME = os.getenv("RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
 
 
 class HybridRetriever:
-    """موتور بازیابی ترکیبی واقعی (Dense + Lexical + RRF + Cross-Encoder) با کنترل دسترسی چندکاربره"""
+    """موتور بازیابی ترکیبی واقعی (Dense + Lexical + RRF + Cross-Encoder) سازگار با VectorDBService"""
 
-    def __init__(self, qdrant_client: QdrantClient, encoder: SentenceTransformer):
-        self.client = qdrant_client
-        self.encoder = encoder
-        logger.info(f"Loading Cross-Encoder model: {RERANKER_MODEL_NAME}")
-        self.reranker = CrossEncoder(RERANKER_MODEL_NAME)
+    def __init__(
+        self,
+        vector_db: Optional[VectorDBService] = None,
+        qdrant_client: Optional[QdrantClient] = None,
+        encoder: Optional[SentenceTransformer] = None
+    ):
+        # پشتیبانی هم‌زمان از هر دو امضای ورودی (جهت جلوگیری از خطا در تست‌ها و app.py)
+        if vector_db is not None:
+            self.vector_db = vector_db
+        else:
+            self.vector_db = VectorDBService()
+            if qdrant_client is not None:
+                self.vector_db.client = qdrant_client
+            if encoder is not None:
+                self.vector_db.encoder = encoder
+
+        logger.info(f"Loading Cross-Encoder model: {settings.RERANKER_MODEL}")
+        self.reranker = CrossEncoder(settings.RERANKER_MODEL)
 
     @staticmethod
     def _lexical_score(query: str, text: str) -> float:
-        """محاسبه امتیاز واژگانی برای تطابق دقیق بندها، مواد و اعداد"""
         query_tokens = set(query.lower().split())
         text_tokens = set(text.lower().split())
         if not query_tokens:
@@ -34,7 +43,6 @@ class HybridRetriever:
         lexical_results: List[Dict[str, Any]],
         k: int = 60
     ) -> List[Dict[str, Any]]:
-        """ادغام نتایج Dense و Lexical با الگوریتم استاندارد RRF بر مبنای کلید یکتا"""
         rrf_scores = {}
         doc_map = {}
 
@@ -51,7 +59,6 @@ class HybridRetriever:
             rrf_scores[doc_key] = rrf_scores.get(doc_key, 0.0) + (1.0 / (k + rank))
 
         sorted_docs = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-
         fused_results = []
         for doc_key, score in sorted_docs:
             d = doc_map[doc_key]
@@ -68,70 +75,31 @@ class HybridRetriever:
         tenant_id: str = "default",
         source_filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """اجرای جریان کامل Hybrid Retrieval با اعمال فیلتر امنیتی Tenant و سند"""
+        """بازیابی ترکیبی با رعایت کامل سطح دسترسی کاربر (tenant_id)"""
         try:
-            must_conditions = [
-                models.FieldCondition(
-                    key="tenant_id",
-                    match=models.MatchValue(value=tenant_id)
-                )
-            ]
-            if source_filter and source_filter != "همه اسناد مجاز":
-                must_conditions.append(
-                    models.FieldCondition(
-                        key="source",
-                        match=models.MatchValue(value=source_filter)
-                    )
-                )
-
-            qdrant_filter = models.Filter(must=must_conditions)
-
-            # ۱. جستجوی معنایی (Dense Search) با فیلتر کنترل دسترسی
-            query_vector = self.encoder.encode(query, normalize_embeddings=True).tolist()
-            dense_hits = self.client.search(
-                collection_name=COLLECTION_NAME,
-                query_vector=query_vector,
-                query_filter=qdrant_filter,
-                limit=candidate_pool
+            # ۱. جستجوی معنایی از طریق متد استاندارد vector_db.search
+            dense_results = self.vector_db.search(
+                query=query,
+                top_k=candidate_pool,
+                tenant_id=tenant_id,
+                source_filter=source_filter
             )
 
-            dense_results = []
-            for hit in dense_hits:
-                payload = hit.payload or {}
-                dense_results.append({
-                    "content": payload.get("content", ""),
-                    "metadata": {
-                        "source": payload.get("source", "unknown"),
-                        "page": payload.get("page", 1),
-                        "clause_id": payload.get("clause_id", "N/A")
-                    },
-                    "dense_score": hit.score
-                })
-
-            # ۲. جستجوی واژگانی (Lexical Search) محدود به اسناد همان Tenant
-            all_records, _ = self.client.scroll(
-                collection_name=COLLECTION_NAME,
-                scroll_filter=qdrant_filter,
-                limit=100,
-                with_payload=True,
-                with_vectors=False
+            # ۲. جستجوی واژگانی (Lexical) روی اسناد مجاز همان کاربر
+            all_records = self.vector_db.scroll_tenant_records(
+                tenant_id=tenant_id,
+                source_filter=source_filter,
+                limit=100
             )
 
             lexical_candidates = []
             for record in all_records:
-                payload = record.payload or {}
-                content = payload.get("content", "")
+                content = record.get("content", "")
                 score = self._lexical_score(query, content)
                 if score > 0.0:
-                    lexical_candidates.append({
-                        "content": content,
-                        "metadata": {
-                            "source": payload.get("source", "unknown"),
-                            "page": payload.get("page", 1),
-                            "clause_id": payload.get("clause_id", "N/A")
-                        },
-                        "lexical_score": score
-                    })
+                    item = dict(record)
+                    item["lexical_score"] = score
+                    lexical_candidates.append(item)
 
             lexical_candidates = sorted(
                 lexical_candidates, key=lambda x: x["lexical_score"], reverse=True
@@ -140,13 +108,12 @@ class HybridRetriever:
             if not lexical_candidates:
                 lexical_candidates = dense_results
 
-            # ۳. ادغام با الگوریتم RRF
+            # ۳. ترکیب نتایج با الگوریتم RRF
             fused_candidates = self._reciprocal_rank_fusion(dense_results, lexical_candidates, k=60)
             if not fused_candidates:
-                logger.warning(f"No candidates found in hybrid retrieval for tenant '{tenant_id}'.")
                 return []
 
-            # ۴. رتبه‌بندی مجدد با Cross-Encoder
+            # ۴. بازچینی با Cross-Encoder
             pairs = [[query, item["content"]] for item in fused_candidates]
             rerank_scores = self.reranker.predict(pairs)
 
