@@ -24,12 +24,12 @@ def generate_answer(query: str, contexts: list) -> str:
 
     prompt = f"""You are a precise enterprise legal and financial AI assistant.
 Answer the user's Persian question accurately based ONLY on the provided contract clauses below.
-Map English legal terms to Persian accurately (e.g., Penalty / Liquidated Damages / Delay = جریمه تاخیر در تحویل, Contract Value / Fee = مبلغ قرارداد, Termination = فسخ).
+Translate and extract exact numbers, penalties, currencies, or conditions directly into clear Persian.
 
 Rules:
-1. Write your final answer in clear Persian (فارسی).
-2. Extract exact numbers, percentages, currencies (EUR, USD, etc.), time limits, and cite the Document name and Page number.
-3. ONLY if the clauses contain zero relevant information, reply exactly:
+1. Provide ONLY the direct, final Persian answer. Do not repeat the question or add contradictory statements.
+2. If the answer exists, state it clearly citing the rule or percentage.
+3. If and only if the information is completely missing, reply exactly:
 "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
 
 Contract Clauses:
@@ -38,7 +38,7 @@ Contract Clauses:
 User Question:
 {query}
 
-Answer in Persian:"""
+Direct Answer in Persian:"""
 
     try:
         with pipeline_logger.track_latency("llm_generation", query=query):
@@ -49,9 +49,9 @@ Answer in Persian:"""
                     "prompt": prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.1,
-                        "num_predict": 200,
-                        "num_ctx": 1024  # بهینه‌سازی مصرف رم برای جلوگیری از خطای 500 روی رم 8GB
+                        "temperature": 0.0,  # صفر برای جلوگیری از پاسخ‌های متناقض و خلاقیت اضافی
+                        "num_predict": 150,
+                        "num_ctx": 1024
                     }
                 },
                 timeout=120
@@ -59,14 +59,17 @@ Answer in Persian:"""
             if response.status_code == 200:
                 data = response.json()
                 ans = data.get("response", "").strip()
-                if ans:
-                    return ans
-                return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
+                
+                # اگر مدل پاسخ مثبت داد ولی جمله تناقض‌امیز را هم چسباند، بخش منفی را برش می‌زنیم
+                if "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است" in ans and len(ans) > 45:
+                    ans = ans.replace("در متن ارائه‌شده اشاره‌ای به این موضوع نشده است.", "").strip()
+
+                return ans if ans else "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
             
-            # نمایش دقیق دلیل خطای داخلی Ollama در صورت رخداد
             err_detail = response.text
             logger.error(f"Ollama HTTP {response.status_code}: {err_detail}")
-            return f"⚠️ خطا در سرویس مدل زبانی (کد {response.status_code}): {err_detail}"
+            return f"⚠️ خطا در سرویس مدل زبانی (کد {response.status_code})"
 
     except Exception as e:
         logger.error(f"Error during LLM generation: {str(e)}")
+        return f"⚠️ خطا در ارتباط با موتور Ollama: {str(e)}"
