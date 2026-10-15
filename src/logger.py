@@ -3,19 +3,26 @@ import logging
 import sys
 import time
 from contextlib import contextmanager
+from src.security import SecurityGuard
 
 class JSONFormatter(logging.Formatter):
-    """فرمت‌دهنده لاگ به صورت ساختاریافته JSON برای مانیتورینگ سازمانی"""
+    """فرمت‌دهنده لاگ ساختاریافته همراه با ماسک‌سازی امنیتی خودکار (PII Masking)"""
     def format(self, record: logging.LogRecord) -> str:
+        # پاکسازی پیام اصلی لاگ از اطلاعات حساس
+        clean_message = SecurityGuard.sanitize_text(record.getMessage())
+        
         log_record = {
             "timestamp": self.formatTime(record, self.datefmt),
             "level": record.levelname,
             "module": record.module,
-            "message": record.getMessage(),
+            "message": clean_message,
         }
-        # اضافه کردن فیلدهای اضافه (مانند latency_ms یا query) در صورت وجود
+        
+        # پاکسازی فیلدهای اضافه (مثل پرسش‌ها یا متون حقوقی) پیش از ثبت
         if hasattr(record, "extra_fields"):
-            log_record.update(record.extra_fields)
+            safe_extra = SecurityGuard.secure_log_payload(record.extra_fields)
+            log_record.update(safe_extra)
+            
         return json.dumps(log_record, ensure_ascii=False)
 
 def setup_logger(name: str = "legal_rag") -> logging.Logger:
@@ -33,7 +40,7 @@ logger = setup_logger()
 
 @contextmanager
 def trace_latency(stage_name: str, query: str = None):
-    """کانتکست‌منیجر برای اندازه‌گیری زمان اجرای هر لایه از پایپ‌لاین"""
+    """کانتکست‌منیجر امن برای اندازه‌گیری زمان و ثبت لاگ بدون نشت داده"""
     start_time = time.perf_counter()
     metrics = {"status": "success"}
     try:
@@ -50,15 +57,14 @@ def trace_latency(stage_name: str, query: str = None):
             "status": metrics["status"]
         }
         if query:
-            extra["query"] = query
+            # ماسک کردن پرسش کاربر در لاگ‌های سیستمی
+            extra["query"] = SecurityGuard.sanitize_text(query)
         if "error" in metrics:
-            extra["error"] = metrics["error"]
+            extra["error"] = SecurityGuard.sanitize_text(metrics["error"])
             
         logger.info(f"Execution completed for stage: {stage_name}", extra={"extra_fields": extra})
 
-# سازگاری کامل برای ایمپورت‌های مختلف در سراسر پروژه
 class PipelineLoggerWrapper:
-    """کلاس پوشش‌دهنده جهت حفظ سازگاری با pipeline_logger.track_latency"""
     @staticmethod
     def track_latency(stage: str, query: str = None):
         return trace_latency(stage, query)
