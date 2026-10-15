@@ -23,22 +23,22 @@ def generate_answer(query: str, contexts: list) -> str:
     combined_context = "\n\n".join(context_blocks)
 
     prompt = f"""You are a precise enterprise legal and financial AI assistant.
-Your task is to answer the user's Persian question accurately based ONLY on the provided contract clauses below.
-Note: The contract clauses may be in English or Persian. Translate and map legal concepts accurately (for example: Penalty / Liquidated Damages / Delay = جریمه تاخیر در تحویل, Contract Value / Fee = مبلغ قرارداد, Termination = فسخ).
+Answer the user's Persian question accurately based ONLY on the provided contract clauses below.
+Map English legal terms to Persian accurately (e.g., Penalty / Liquidated Damages / Delay = جریمه تاخیر در تحویل, Contract Value / Fee = مبلغ قرارداد, Termination = فسخ).
 
 Rules:
-1. Write your final answer in clear, professional Persian (فارسی).
+1. Write your final answer in clear Persian (فارسی).
 2. Extract exact numbers, percentages, currencies (EUR, USD, etc.), time limits, and cite the Document name and Page number.
-3. ONLY if the provided clauses contain zero relevant information about the topic, reply exactly:
+3. ONLY if the clauses contain zero relevant information, reply exactly:
 "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
 
 Contract Clauses:
 {combined_context}
 
-User Question (in Persian):
+User Question:
 {query}
 
-Answer in Persian (پاسخ مستند به فارسی):"""
+Answer in Persian:"""
 
     try:
         with pipeline_logger.track_latency("llm_generation", query=query):
@@ -50,8 +50,8 @@ Answer in Persian (پاسخ مستند به فارسی):"""
                     "stream": False,
                     "options": {
                         "temperature": 0.1,
-                        "num_predict": 250,
-                        "num_ctx": 2048
+                        "num_predict": 200,
+                        "num_ctx": 1024  # بهینه‌سازی مصرف رم برای جلوگیری از خطای 500 روی رم 8GB
                     }
                 },
                 timeout=120
@@ -63,9 +63,10 @@ Answer in Persian (پاسخ مستند به فارسی):"""
                     return ans
                 return "در متن ارائه‌شده اشاره‌ای به این موضوع نشده است."
             
-            logger.error(f"Ollama HTTP {response.status_code}: {response.text}")
-            return f"⚠️ خطا در سرویس مدل زبانی (کد {response.status_code}): لطفاً مطمئن شوید مدل {MODEL_NAME} در Ollama دانلود شده است."
+            # نمایش دقیق دلیل خطای داخلی Ollama در صورت رخداد
+            err_detail = response.text
+            logger.error(f"Ollama HTTP {response.status_code}: {err_detail}")
+            return f"⚠️ خطا در سرویس مدل زبانی (کد {response.status_code}): {err_detail}"
 
     except Exception as e:
         logger.error(f"Error during LLM generation: {str(e)}")
-        return f"⚠️ خطا در ارتباط با موتور Ollama: {str(e)}"

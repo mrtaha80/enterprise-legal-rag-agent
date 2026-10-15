@@ -26,7 +26,7 @@ services:
       - OLLAMA_NUM_PARALLEL=1
       - OLLAMA_KEEP_ALIVE=5m
     volumes:
-      - "/mnt/c/Users/Taha tk/.ollama/models:/root/.ollama/models"
+      - "/home/taha_tk/.ollama/models:/root/.ollama/models"
     networks:
       - legal_rag_net
 
