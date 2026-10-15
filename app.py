@@ -135,7 +135,7 @@ st.markdown("""
 with st.sidebar:
     st.markdown('<div class="section-header">🔐 جداسازی فضای کاری (Demo Shared-PIN Gate)</div>', unsafe_allow_html=True)
     st.caption(
-        "توجه معماری: ایزوله‌سازی داده (`tenant_id`) در لایه Qdrant به‌طور کامل پیاده‌سازی شده است، اما این درگاه ورود صرفاً یک مکانیزم نمایشی مبتنی بر PIN مشترک (Demo Shared-PIN) است و جایگزین احراز هویت واقعی کاربر (SSO/OAuth2) نیست."
+        "توجه معماری: ایزوله‌سازی داده (`tenant_id`) در لایه Qdrant به‌طور کامل پیاده‌سازی شده است، اما این درگاه ورود صرفاً یک مکانیزم نمایشی مبتنی بر PIN مشترک است و جایگزین احراز هویت واقعی کاربر (SSO/OAuth2) نیست."
     )
     username = st.text_input("شناسه فضای کاری (Tenant Identifier):", value="legal_unit_1")
 
@@ -220,7 +220,7 @@ with st.sidebar:
 
 tab_qa, tab_bench = st.tabs([
     "🔍 پرسش‌وپاسخ مستند از قراردادها",
-    "🧪 اجرای زنده بنچمارک طلایی (11-Case Suite)",
+    "🧪 اجرای زنده بنچمارک طلایی (Unified Benchmark Suite)",
 ])
 
 with tab_qa:
@@ -337,43 +337,58 @@ with tab_qa:
             """, unsafe_allow_html=True)
 
 with tab_bench:
-    st.markdown("### 🧪 اجرای عملیاتی مجموعه بنچمارک طلایی (11-Case Multi-Scenario Suite)")
+    st.markdown("### 🧪 اجرای عملیاتی بنچمارک واحد (`golden_dataset.json`)")
     st.caption(
-        "این مجموعه شامل سناریوهای فارسی، انگلیسی، استخراج عددی، چندبندی، چندصفحه‌ای، تضاد الحاقیه، خارج از موضوع و تست دفاع در برابر Prompt Injection است."
+        "این بخش از موتور واحد `RagEvaluator.run_unified_benchmark` استفاده می‌کند. سناریوهای داخل‌موضوعی در صورت امتناع نادرست مدل، به عنوان شکست (False Refusal) ثبت می‌شوند."
     )
 
-    if st.button("▶️ اجرای زنده بنچمارک End-to-End و تولید گزارش", use_container_width=True):
-        with st.spinner("در حال اجرای ۱۱ سناریوی مرجع روی Qdrant و LLM..."):
-            report = RagEvaluator.run_golden_benchmark_suite(
-                db_service=db_service,
-                retriever=retriever,
-                generator_fn=generate_structured_answer,
-                use_live_retrieval=True,
+    if st.button("▶️ اجرای زنده بنچمارک روی فضای کاری فعلی و تولید گزارش", use_container_width=True):
+        prog = st.progress(0, text="در حال شروع بنچمارک...")
+
+        def _ui_progress(idx: int, total: int, item_res: dict):
+            prog.progress(
+                int((idx / total) * 100),
+                text=f"بررسی {item_res['id']} ({idx}/{total}): {item_res['outcome_type']}",
             )
 
-        b1, b2, b3, b4, b5 = st.columns(5)
-        b1.metric("نرخ قبولی (Pass Rate)", f"{int(report['pass_rate'] * 100)}%", f"{report['passed_cases']}/{report['total_cases']}")
-        b2.metric("میانگین Keyword Recall", f"{int(report['avg_keyword_recall'] * 100)}%")
-        b3.metric("دقت استناد (Citation)", f"{int(report['avg_citation_accuracy'] * 100)}%")
-        b4.metric("میانگین Retrieval", f"{report['avg_retrieval_ms']} ms")
-        b5.metric("میانگین Generation", f"{report['avg_generation_ms']} ms")
+        report = RagEvaluator.run_unified_benchmark(
+            retriever=retriever,
+            generator_fn=generate_structured_answer,
+            dataset_path="evaluation/golden_dataset.json",
+            tenant_id=tenant_id,
+            top_k=3,
+            progress_callback=_ui_progress,
+        )
+        prog.progress(100, text="ارزیابی کامل شد!")
+
+        s = report["summary"]
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        k1.metric("Pass Rate واقعی", f"{s['pass_rate_percentage']}%", f"{s['passed_cases']}/{s['total_test_cases']}")
+        k2.metric("پاسخ‌های مستند (Grounded)", f"{s['grounded_answers_count']}/{s['in_scope_cases']}")
+        k3.metric("امتناع‌های غلط (False Refusal)", f"{s['false_refusals_count']}")
+        k4.metric("امتناع‌های صحیح (Out-of-Scope)", f"{s['correct_refusals_count']}/{s['out_of_scope_cases']}")
+        k5.metric("Expected Page Hit Rate", f"{s['expected_page_hit_rate_percentage']}%")
+        k6.metric("P95 Retrieval / Gen", f"{s['p95_retrieval_latency_ms']} / {s['p95_generation_latency_ms']} ms")
 
         st.download_button(
-            label="📥 دانلود گزارش کامل بنچمارک (JSON)",
+            label="📥 دانلود گزارش کامل بنچمارک (benchmark_report.json)",
             data=json.dumps(report, ensure_ascii=False, indent=2),
-            file_name="golden_benchmark_report.json",
+            file_name="benchmark_report.json",
             mime="application/json",
         )
 
-        st.markdown("#### 📋 جزئیات نتایج هر سناریو:")
-        for res in report["results"]:
-            status_icon = "✅ PASSED" if res["passed"] else "❌ FAILED"
-            with st.expander(f"{status_icon} | [{res['category']}] {res['case_id']} — {res['query']}"):
-                st.markdown(f"**پاسخ تولیدشده:**\n> {res['generated_answer']}")
+        for d in report["details"]:
+            icon = "✅ PASSED" if d["passed"] else "❌ FAILED"
+            with st.expander(f"{icon} | {d['id']} [{d['outcome_type']}] — {d['query']}"):
+                st.markdown(f"**پاسخ سیستم:**\n> {d['answer']}")
                 st.write({
-                    "keyword_recall": res["keyword_recall"],
-                    "citation_accuracy": res["citation_accuracy"],
-                    "retrieval_ms": res["retrieval_ms"],
-                    "generation_ms": res["generation_ms"],
-                    "passed": res["passed"],
+                    "is_out_of_scope": d["is_out_of_scope"],
+                    "expected_page": d["expected_page"],
+                    "retrieved_pages": d["retrieved_pages"],
+                    "page_match": d["page_match"],
+                    "keyword_recall": d["keyword_recall"],
+                    "context_relevance": d["context_relevance"],
+                    "faithfulness": d["faithfulness"],
+                    "retrieval_latency_ms": d["retrieval_latency_ms"],
+                    "generation_latency_ms": d["generation_latency_ms"],
                 })

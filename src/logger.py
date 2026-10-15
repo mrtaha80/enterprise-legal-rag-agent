@@ -34,7 +34,8 @@ def setup_logger(name: str = "legal_rag") -> logging.Logger:
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(JSONFormatter())
         logger_instance.addHandler(handler)
-        logger_instance.propagate = False
+    # فعال بودن propagate برای اینکه فریم‌ورک تست (pytest caplog) بتواند لاگ‌ها را دریافت کند
+    logger_instance.propagate = True
     return logger_instance
 
 
